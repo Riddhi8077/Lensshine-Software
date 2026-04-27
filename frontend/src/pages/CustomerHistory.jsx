@@ -14,7 +14,7 @@ import {
   Clock,
 } from "lucide-react";
 
-import { API } from "../App";
+import { API } from "../config/api";
 
 function CustomerHistory() {
   const navigate = useNavigate();

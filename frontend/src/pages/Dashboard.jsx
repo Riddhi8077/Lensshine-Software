@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { ShoppingBag, IndianRupee, Clock, AlertTriangle, BookDashed } from "lucide-react";
 
-import { API } from "../App";
+import { API } from "../config/api";
 
 function Dashboard() {
   const [stats, setStats] = useState(null);

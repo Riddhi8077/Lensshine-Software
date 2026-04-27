@@ -23,6 +23,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popove
 import { Calendar } from "../components/ui/calendar";
 import { Button } from "../components/ui/button";
 import { useRef } from "react";
+import { useLocation } from "react-router-dom";
+
 
 const API = "http://localhost:5000"; // change later if needed
 
@@ -47,6 +49,7 @@ const slideVariants = {
 
 function NewCustomer() {
   const navigate = useNavigate();
+  const location = useLocation(); 
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
 
@@ -69,6 +72,28 @@ function NewCustomer() {
   // Step 2: Lens
   const [lenses, setLenses] = useState([]);
   const [selectedLens, setSelectedLens] = useState(null);
+  const lensPrice = Number(selectedLens?.price) || 0;
+  const frameAmount = Number(framePrice) || 0;
+
+const totalAmount = frameAmount + lensPrice;
+
+console.log("LENS:", selectedLens);
+console.log("TOTAL:", totalAmount);
+console.log("ENTERED FRAME:", framePrice);
+
+useEffect(() => {
+  const storedFrame = localStorage.getItem("framePrice");
+
+  if (storedFrame) {
+    setFramePrice(Number(storedFrame));
+  }
+
+  // ✅ Handle lens return
+  if (location.state?.selectedLens) {
+    setSelectedLens(location.state.selectedLens);
+    setStep(3);
+  }
+}, [location.state]);
 
   // Step 3+: Order/Payment
   const [orderId, setOrderId] = useState(null);
@@ -76,14 +101,8 @@ function NewCustomer() {
   const [payAmount, setPayAmount] = useState(0);
   const [payMethod, setPayMethod] = useState("qr");
 
-  const totalAmount =
-    (parseFloat(framePrice) || 0) + (selectedLens?.price || 0);
-
   const [couponApplied, setCouponApplied] = useState(false);
 
-  useEffect(() => {
-    axios.get(`${API}/lenses`).then(r => setLenses(r.data)).catch(() => {});
-  }, []);
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -131,9 +150,14 @@ function NewCustomer() {
       setOrderData(res.data);
       setPayAmount(totalAmount);
       setStep(4);
-    } catch {
-      toast.error("Failed to create order");
-    } finally {
+    } catch (err) {
+  console.error("CREATE ORDER ERROR:", err);
+  console.log("SERVER RESPONSE:", err?.response?.data);
+
+  toast.error(
+    err?.response?.data?.message || "Failed to create order"
+  );
+} finally {
       setLoading(false);
     }
   }, [customerName, mobile, address, bookingDate, prescriptionType, prescriptionImage, rightEye, leftEye, framePrice, selectedLens, totalAmount]);
@@ -165,13 +189,18 @@ function NewCustomer() {
   };
 
   const nextStep = () => {
-    if (step === 3) { createOrder(); return; }
-    if (step < 6) setStep(step + 1);
-  };
+  if (step === 3) {
+    createOrder();
+    return;
+  }
+  if (step < 6) setStep(step + 1); 
+};
 
   const prevStep = () => {
     if (step > 0) setStep(step - 1);
   };
+
+  
 
   // Auto-fill from existing customer
   const checkExistingCustomer = async (mobileNum) => {
@@ -432,7 +461,12 @@ const generateInvoiceImage = async () => {
   type="number"
   placeholder="0"
   value={framePrice}
-  onChange={(e) => setFramePrice(e.target.value)}
+  onChange={(e) => {
+  const value = Number(e.target.value);
+  setFramePrice(value);
+
+  localStorage.setItem("framePrice", value);
+}}
   className="pl-20 h-12 left-7 text-lg bg-card border border-border text-foreground focus:border-primary focus:ring-1 focus:ring-primary"
   style={{ backgroundColor: "hsl(var(--card))" }}
 />
@@ -617,146 +651,41 @@ const generateInvoiceImage = async () => {
   </div>
 )}
 
-{/* Step 2: Lens Selection */}
 {step === 2 && (
-  <div className="space-y-10 max-w-6xl mx-auto">
+  <div className="flex flex-col items-center justify-center h-[60vh]">
 
-    {/* Heading */}
-    <div className="text-center">
-      <h2
-        className="text-3xl sm:text-4xl tracking-tight text-white"
-        style={{ fontFamily: "'Cormorant Garamond', serif" }}
-      >
-        Choose a Lens
-      </h2>
-      <p className="text-white/50 mt-2 text-sm">
-        Select the perfect lens for your customer
-      </p>
-    </div>
+    <h2 className="text-3xl text-white mb-6">
+      Choose Lens Type
+    </h2>
 
-    {/* 👇 FALLBACK DATA (IMPORTANT FIX) */}
-    {(() => {
-      const fallbackLenses = [
-        {
-          id: 1,
-          name: "Blue Cut Lens",
-          description: "Blocks harmful blue light from digital screens",
-          price: 800,
-          image: "https://images.unsplash.com/photo-1583394838336-acd977736f90",
-          pros: ["Reduces eye strain", "Better sleep quality", "UV protection"],
-          cons: ["Slight yellow tint", "Higher cost"]
-        },
-        {
-          id: 2,
-          name: "Anti-Glare Lens",
-          description: "Minimizes reflections for crystal clear vision",
-          price: 600,
-          image: "https://images.unsplash.com/photo-1511499767150-a48a237f0083",
-          pros: ["Reduced glare", "Better aesthetics", "Easier cleaning"],
-          cons: ["Scratches visible", "Needs care"]
-        },
-        {
-          id: 3,
-          name: "Photochromic Lens",
-          description: "Automatically adapts to changing light",
-          price: 1500,
-          image: "https://images.unsplash.com/photo-1577803645773-f96470509666",
-          pros: ["Indoor/outdoor", "UV protection", "Convenient"],
-          cons: ["Slower in cold", "Not great in cars"]
-        },
-        {
-          id: 4,
-          name: "Progressive Lens",
-          description: "Seamless vision for all distances",
-          price: 2500,
-          image: "https://images.unsplash.com/photo-1517841905240-472988babdf9",
-          pros: ["No visible line", "All distances", "Modern"],
-          cons: ["Adaptation needed", "Peripheral distortion"]
-        }
-      ];
-
-      const data = lenses && lenses.length > 0 ? lenses : fallbackLenses;
-
-      return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {data.map((lens) => {
-            const isSelected = selectedLens?.id === lens.id;
-
-            return (
-              <div
-                key={lens.id}
-                data-testid={`lens-card-${lens.id}`}
-                onClick={() => setSelectedLens(lens)}
-                className={`relative cursor-pointer rounded-xl border p-5 transition-all duration-300 bg-[#111111] hover:-translate-y-1 hover:border-[#d4af37]/40
-                  ${isSelected ? "border-[#d4af37] ring-1 ring-[#d4af37]" : "border-white/10"}
-                `}
-              >
-                {/* Selected Tick */}
-                {isSelected && (
-                  <div className="absolute top-3 right-3">
-                    <div className="w-6 h-6 bg-[#d4af37] rounded-full flex items-center justify-center">
-                      <Check className="h-3.5 w-3.5 text-black" />
-                    </div>
-                  </div>
-                )}
-
-                {/* Image */}
-                <div className="w-full h-36 mb-4 overflow-hidden rounded-lg">
-                  <img
-                    src={lens.image}
-                    alt={lens.name}
-                    className="w-full h-full object-cover opacity-90 hover:scale-105 transition duration-300"
-                  />
-                </div>
-
-                {/* Title */}
-                <h3 className="text-white font-semibold text-sm mb-1">
-                  {lens.name}
-                </h3>
-
-                {/* Description */}
-                <p className="text-white/40 text-xs mb-3 line-clamp-2">
-                  {lens.description}
-                </p>
-
-                {/* Pros */}
-                <div className="flex flex-wrap gap-1 mb-2">
-                  {lens.pros.map((p, i) => (
-                    <span
-                      key={i}
-                      className="text-[10px] px-2 py-[2px] rounded-md border border-green-500/30 text-green-400 bg-green-500/5"
-                    >
-                      {p}
-                    </span>
-                  ))}
-                </div>
-
-                {/* Cons */}
-                <div className="flex flex-wrap gap-1 mb-3">
-                  {lens.cons.map((c, i) => (
-                    <span
-                      key={i}
-                      className="text-[10px] px-2 py-[2px] rounded-md border border-red-500/30 text-red-400 bg-red-500/5"
-                    >
-                      {c}
-                    </span>
-                  ))}
-                </div>
-
-                {/* Price */}
-                <p className="text-[#d4af37] font-semibold text-lg">
-                  ₹{lens.price.toLocaleString()}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-      );
-    })()}
+    <button
+    onClick={() =>
+  navigate("/lens-selection", {
+  state: {
+    framePrice: Number(framePrice) || 0,
+    from: "new-customer"
+  }
+})
+}
+    className="bg-[#d4af37] text-black px-6 py-3 rounded-lg"
+    >
+      Select Lens
+    </button>
+    
+    {selectedLens && (
+  <div className="bg-[#111] p-4 rounded-lg mt-6">
+    <h3 className="text-white text-lg mb-2">Selected Lens</h3>
+    <p>{selectedLens.name}</p>
+    <p className="text-[#d4af37] font-semibold">
+      ₹{selectedLens.price}
+    </p>
   </div>
 )}
 
-         {/* Step 3: Order Summary */}
+  </div>
+)}
+
+{/* Step 3: Order Summary */}
 {step === 3 && (
   <div className="max-w-5xl mx-auto space-y-10">
 
@@ -819,9 +748,7 @@ const generateInvoiceImage = async () => {
               Lens {selectedLens ? `- ${selectedLens.name}` : ""}
             </span>
             <span className="text-white">
-              ₹{selectedLens?.price
-                ? Number(selectedLens.price).toLocaleString()
-                : "0"}
+              ₹{lensPrice.toLocaleString()}
             </span>
           </div>
         </div>
@@ -831,14 +758,20 @@ const generateInvoiceImage = async () => {
 
         {/* Total */}
         <div className="flex justify-between items-center text-lg font-semibold">
-          <span className="text-white">Total</span>
-          <span className="text-[#d4af37]">
-            ₹
-            {(
-              (Number(framePrice) || 0) +
-              (Number(selectedLens?.price) || 0)
-            ).toLocaleString()}
-          </span>
+  <span className="text-white">Total</span>
+  <span className="text-[#d4af37]">
+    ₹{totalAmount.toLocaleString()}
+  </span>
+</div>
+
+{/* 🔥 BUTTON FIXED POSITION */}
+<div className="flex justify-end mt-6">
+  <button
+    onClick={createOrder}
+    className="bg-[#d4af37] text-black px-6 py-3 rounded-lg hover:bg-[#f3e5ab]"
+  >
+    Confirm Order →
+  </button>
         </div>
       </div>
     </div>
@@ -1021,7 +954,7 @@ const generateInvoiceImage = async () => {
       </h2>
 
       <p className="text-white/40 text-sm mt-1">
-        Order #{orderId?.slice(0, 8) || "----"}
+        Order #{String(orderId)?.slice(0, 8) || "----"}
       </p>
     </div>
 
@@ -1042,7 +975,7 @@ const generateInvoiceImage = async () => {
         <div className="text-right">
           <p className="text-white/40 text-xs">Invoice</p>
           <p className="text-white text-sm font-mono">
-            #{orderId?.slice(0, 8) || "----"}
+            #{String(orderId)?.slice(0, 8) || "----"}
           </p>
           <p className="text-white/40 text-xs mt-1">
             {bookingDate
@@ -1198,14 +1131,8 @@ onClick={() => {
         lens_name: selectedLens?.name || "Lens",
         lens_price: Number(selectedLens?.price) || 0,
 
-        total_amount:
-          (Number(framePrice) || 0) +
-          (Number(selectedLens?.price) || 0),
-
-        paid_amount:
-          (Number(framePrice) || 0) +
-          (Number(selectedLens?.price) || 0),
-
+        total_amount: totalAmount,
+        paid_amount: totalAmount,
         remaining_amount: 0,
       };
 
