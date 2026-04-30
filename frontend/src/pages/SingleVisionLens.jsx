@@ -157,15 +157,22 @@ const SingleVisionLens = () => {
 
         <button
   onClick={() =>
-  navigate("/new-customer", {
-    state: {
-      selectedLens: {
-        name: selectedLens.name,
-        price: Number(selectedLens.price) // ✅ always number
-      },
-    }
-  })
-}
+    navigate("/new-customer", {
+      state: {
+        selectedLens: selectedLens,
+
+        customerName: location.state?.customerName,
+        mobile: location.state?.mobile,
+        address: location.state?.address,
+        bookingDate: location.state?.bookingDate,
+
+        rightEye: location.state?.rightEye,
+        leftEye: location.state?.leftEye,
+        prescriptionType: location.state?.prescriptionType,
+        prescriptionImage: location.state?.prescriptionImage,
+      }
+    })
+  }
   className="mt-6 w-full bg-[#d4af37] text-black py-3 rounded-lg font-semibold hover:opacity-90 transition"
 >
   Select This Lens

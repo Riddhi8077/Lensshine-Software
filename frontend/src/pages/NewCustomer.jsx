@@ -88,12 +88,39 @@ useEffect(() => {
     setFramePrice(Number(storedFrame));
   }
 
-  // ✅ Handle lens return
-  if (location.state?.selectedLens) {
-    setSelectedLens(location.state.selectedLens);
-    setStep(3);
+  if (location.state) {
+
+    // Restore lens
+    if (location.state.selectedLens) {
+      setSelectedLens(location.state.selectedLens);
+    }
+
+    // Restore customer data
+    setCustomerName(location.state.customerName || "");
+    setMobile(location.state.mobile || "");
+    setAddress(location.state.address || "");
+
+    // Restore prescription
+    setRightEye(location.state.rightEye || "");
+    setLeftEye(location.state.leftEye || "");
+    setPrescriptionType(
+      location.state.prescriptionType || "manual"
+    );
+    setPrescriptionImage(
+      location.state.prescriptionImage || ""
+    );
+
+    // Restore booking date
+    if (location.state.bookingDate) {
+      setBookingDate(new Date(location.state.bookingDate));
+    }
+
+    // Go back to summary
+    if (location.state.selectedLens) {
+      setStep(3);
+    }
   }
-}, [location.state]);
+}, [location.state]); 
 
   // Step 3+: Order/Payment
   const [orderId, setOrderId] = useState(null);
@@ -146,6 +173,7 @@ useEffect(() => {
         payments: [],
       };
       const res = await axios.post(`${API}/orders`, payload);
+      console.log("ORDER RESPONSE:", res.data);
       setOrderId(res.data.id);
       setOrderData(res.data);
       setPayAmount(totalAmount);
@@ -267,6 +295,8 @@ const sendInvoice = async () => {
 
     const imageUrl = uploadData.secure_url;
     console.log("Image URL:", imageUrl);
+    console.log("ORDER DATA:", orderData);
+    console.log("CUSTOMER NAME:", customerName);
 
     // STEP 4: Send email
     const res = await fetch("http://localhost:5000/send-invoice", {
@@ -663,7 +693,16 @@ const generateInvoiceImage = async () => {
   navigate("/lens-selection", {
   state: {
     framePrice: Number(framePrice) || 0,
-    from: "new-customer"
+    from: "new-customer",
+
+    customerName,
+    mobile,
+    address,
+    bookingDate,
+    rightEye,
+    leftEye,
+    prescriptionType,
+    prescriptionImage,
   }
 })
 }
@@ -711,14 +750,14 @@ const generateInvoiceImage = async () => {
           <div className="flex justify-between">
             <span className="text-white/50">Customer</span>
             <span className="text-white font-medium uppercase">
-              {customerName || "—"}
+              {orderData?.customer_name || customerName || "—"}
             </span>
           </div>
 
           <div className="flex justify-between">
             <span className="text-white/50">Mobile</span>
             <span className="text-white">
-              {mobile || "—"}
+              {orderData?.mobile || mobile || "—"}
             </span>
           </div>
 
@@ -914,13 +953,23 @@ const generateInvoiceImage = async () => {
               onClick={() => {
                 const remaining = total - amount;
 
-                setOrderData({
-                  total_amount: total,
-                  paid_amount: finalAmount,
-                  remaining_amount: remaining > 0 ? remaining : 0,
-                  payment_status: remaining <= 0 ? "paid" : "partial",
-                  discount: discount,
-                });
+                setOrderData((prev) => ({
+  ...prev,
+
+  customer_name: customerName,
+  mobile: mobile,
+  address: address,
+
+  total_amount: total,
+
+  paid_amount: finalAmount,
+
+  remaining_amount: remaining > 0 ? remaining : 0,
+
+  payment_status: remaining <= 0 ? "paid" : "partial",
+
+  discount: discount,
+}));
 
                 setStep(5);
               }}
@@ -988,18 +1037,30 @@ const generateInvoiceImage = async () => {
       <div className="border-t border-white/10 mb-4" />
 
       {/* Bill To */}
-      <div className="mb-4">
-        <p className="text-white/40 text-xs uppercase mb-1">Bill To</p>
-        <p className="text-white font-medium">
-          {customerName || "N/A"}
-        </p>
-        <p className="text-white/60 text-sm">
-          {mobile || "N/A"}
-        </p>
-        {address && (
-          <p className="text-white/40 text-sm">{address}</p>
-        )}
-      </div>
+<div className="mb-4">
+  <p className="text-white/40 text-xs uppercase mb-1">
+    Bill To
+  </p>
+
+  <p className="text-white font-medium">
+    {orderData?.customer_name ||
+      orderData?.full_name ||
+      customerName ||
+      "N/A"}
+  </p>
+
+  <p className="text-white/60 text-sm">
+    {orderData?.mobile?.toString() ||
+      mobile?.toString() ||
+      "N/A"}
+  </p>
+
+  {(orderData?.address || address) && (
+    <p className="text-white/40 text-sm">
+      {orderData?.address || address}
+    </p>
+  )}
+</div>
 
       {/* Items */}
       <div className="text-sm">
@@ -1042,22 +1103,20 @@ const generateInvoiceImage = async () => {
         </div>
 
         {/* Paid */}
-        <div className="flex justify-between text-sm mt-1">
-          <span className="text-green-400">Paid</span>
-          <span className="text-green-400">
-            ₹
-            {(
-              (Number(framePrice) || 0) +
-              (Number(selectedLens?.price) || 0)
-            ).toLocaleString()}
-          </span>
-        </div>
+<div className="flex justify-between text-sm mt-1">
+  <span className="text-green-400">Paid</span>
+  <span className="text-green-400">
+    ₹{Number(orderData?.paid_amount || 0).toLocaleString()}
+  </span>
+</div>
 
-        {/* Balance (always 0 for now) */}
-        <div className="flex justify-between text-amber-400 text-sm">
-          <span>Balance</span>
-          <span>₹0</span>
-        </div>
+{/* Balance */}
+<div className="flex justify-between text-amber-400 text-sm">
+  <span>Balance</span>
+  <span>
+    ₹{Number(orderData?.remaining_amount || 0).toLocaleString()}
+  </span>
+</div>
 
       </div>
     </div>
@@ -1069,7 +1128,6 @@ const generateInvoiceImage = async () => {
   onChange={(e) => setCustomerEmail(e.target.value)}
   className="w-full mb-4 p-3 bg-[#141414] border border-white/20 text-white"
 />
-
 
     {/* Buttons */}
     <div className="flex gap-3">
@@ -1132,8 +1190,8 @@ onClick={() => {
         lens_price: Number(selectedLens?.price) || 0,
 
         total_amount: totalAmount,
-        paid_amount: totalAmount,
-        remaining_amount: 0,
+        paid_amount: payAmount,
+        remaining_amount: totalAmount - payAmount,
       };
 
       console.log("FINAL ORDER DATA:", finalData);
