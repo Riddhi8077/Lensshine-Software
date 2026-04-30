@@ -5,6 +5,7 @@ import axios from "axios";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import QRCode from "react-qr-code";
+import { Html5Qrcode } from "html5-qrcode";
 
 import {
   Glasses, User, Eye, FileText, CreditCard, CheckCircle, Check,
@@ -24,7 +25,6 @@ import { Calendar } from "../components/ui/calendar";
 import { Button } from "../components/ui/button";
 import { useRef } from "react";
 import { useLocation } from "react-router-dom";
-
 
 const API = "http://localhost:5000"; // change later if needed
 
@@ -48,6 +48,7 @@ const slideVariants = {
 };
 
 function NewCustomer() {
+  const [showScanner, setShowScanner] = useState(false);
   const navigate = useNavigate();
   const location = useLocation(); 
   const [step, setStep] = useState(0);
@@ -80,6 +81,41 @@ const totalAmount = frameAmount + lensPrice;
 console.log("LENS:", selectedLens);
 console.log("TOTAL:", totalAmount);
 console.log("ENTERED FRAME:", framePrice);
+
+useEffect(() => {
+  let scanner;
+
+  if (showScanner) {
+    scanner = new Html5Qrcode("reader");
+
+    scanner
+      .start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: 220,
+        },
+        (decodedText) => {
+          setFramePrice(Number(decodedText));
+          setShowScanner(false);
+
+          scanner.stop().then(() => {
+            scanner.clear();
+          });
+        },
+        () => {}
+      )
+      .catch((err) => {
+        console.log(err);
+      });
+  }
+
+  return () => {
+    if (scanner) {
+      scanner.stop().catch(() => {});
+    }
+  };
+}, [showScanner]);
 
 useEffect(() => {
   const storedFrame = localStorage.getItem("framePrice");
@@ -344,58 +380,66 @@ const generateInvoiceImage = async () => {
   <div data-testid="new-customer-page" className="pt-20 pb-12 px-4 sm:px-6 min-h-screen bg-background text-foreground">
     <div className="max-w-4xl mx-auto">
       
-      {/* Step Indicator */}
-      <div data-testid="step-indicator" className="flex items-center justify-center mb-10 overflow-x-auto pb-2">
-        {STEPS.map((s, i) => {
-          const Icon = s.icon;
-          const isActive = i === step;
-          const isCompleted = i < step;
+    {/* Step Indicator */}
+<div
+  data-testid="step-indicator"
+  className="w-full overflow-x-auto scrollbar-hide mb-8"
+>
+  <div className="flex items-center justify-start sm:justify-center min-w-max px-4">
+    {STEPS.map((s, i) => {
+      const Icon = s.icon;
+      const isActive = i === step;
+      const isCompleted = i < step;
 
-          return (
-            <div key={i} className="flex items-center">
-              
-              <div className="flex flex-col items-center min-w-[56px]">
-                <div
-                  className={cn(
-                    "w-9 h-9 rounded-full flex items-center justify-center text-sm transition-all duration-300",
-                    isActive && "bg-[#d4af37] text-black",
-                    isCompleted && "bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]",
-                    !isActive && !isCompleted && "bg-card border-border/5 text-white/30 border border-white/10"
-                  )}
-                >
-                  {isCompleted ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <Icon className="h-4 w-4" />
-                  )}
-                </div>
-
-                <span
-                  className={cn(
-                    "text-[10px] mt-1.5 tracking-wide",
-                    isActive
-                      ? "text-[#d4af37]"
-                      : isCompleted
-                      ? "text-[#d4af37]/60"
-                      : "text-white/30"
-                  )}
-                >
-                  {s.label}
-                </span>
-              </div>
-
-              {i < STEPS.length - 1 && (
-                <div
-                  className={cn(
-                    "w-6 sm:w-10 h-px mx-1 transition-colors",
-                    i < step ? "bg-[#d4af37]/40" : "bg-card border-border/10"
-                  )}
-                />
+      return (
+        <div key={i} className="flex items-center flex-shrink-0">
+          
+          <div className="flex flex-col items-center min-w-[70px] sm:min-w-[90px]">
+            <div
+              className={cn(
+                "w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-sm transition-all duration-300",
+                isActive && "bg-[#d4af37] text-black shadow-lg shadow-[#d4af37]/30",
+                isCompleted &&
+                  "bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]",
+                !isActive &&
+                  !isCompleted &&
+                  "bg-card text-white/30 border border-white/10"
+              )}
+            >
+              {isCompleted ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Icon className="h-4 w-4" />
               )}
             </div>
-          );
-        })}
-      </div>
+
+            <span
+              className={cn(
+                "text-[10px] sm:text-xs mt-2 text-center whitespace-nowrap",
+                isActive
+                  ? "text-[#d4af37]"
+                  : isCompleted
+                  ? "text-[#d4af37]/70"
+                  : "text-white/40"
+              )}
+            >
+              {s.label}
+            </span>
+          </div>
+
+          {i < STEPS.length - 1 && (
+            <div
+              className={cn(
+                "w-8 sm:w-14 h-[1px] mx-1 sm:mx-2 transition-colors",
+                i < step ? "bg-[#d4af37]/50" : "bg-white/10"
+              )}
+            />
+          )}
+        </div>
+      );
+    })}
+  </div>
+</div>
 
       {/* Step Content */}
 <AnimatePresence mode="wait">
@@ -429,7 +473,7 @@ const generateInvoiceImage = async () => {
         data-testid="frame-qr-option"
         onClick={() => {
           setFrameMethod("qr");
-          handleSimulateScan();
+          setShowScanner(true);
         }}
         className={`cursor-pointer rounded-xl border p-6 flex flex-col items-center justify-center transition-all duration-300 hover:-translate-y-1
         ${
@@ -448,6 +492,16 @@ const generateInvoiceImage = async () => {
           Auto-detect frame price
         </p>
 
+        {showScanner && (
+  <div className="max-w-md mx-auto mt-6">
+    
+    <div
+      id="reader"
+      className="overflow-hidden rounded-xl border border-white/10"
+    />
+
+  </div>
+)}
         {scanActive && (
           <p className="text-primary text-xs mt-2 animate-pulse">
             Scanning...

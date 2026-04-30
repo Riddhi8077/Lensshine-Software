@@ -71,20 +71,15 @@ const progressiveOptions = [
 
 const ProgressiveLens = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [selectedLens, setSelectedLens] = useState(progressiveOptions[0]);
 
-  useEffect(() => {
-    document.body.classList.add("overflow-hidden");
-    return () => {
-      document.body.classList.remove("overflow-hidden");
-    };
-  }, []);
 
   return (
-    <div className="min-h-screen bg-black text-white flex">
+    <div className="min-h-screen bg-black text-white flex flex-col md:flex-row overflow-y-auto">
 
       {/* 🔹 LEFT SIDEBAR */}
-      <div className="w-1/4 border-r border-white/10 p-6 overflow-y-auto">
+      <div className="w-full md:w-1/4 border-b md:border-b-0 md:border-r border-white/10 p-4 md:p-6 max-h-[40vh] md:max-h-screen overflow-y-auto">
         <h2 className="text-xl font-semibold mb-6">Progressive Options</h2>
 
         {progressiveOptions.map((lens) => (
@@ -106,7 +101,7 @@ const ProgressiveLens = () => {
       </div>
 
       {/* 🔹 RIGHT CONTENT */}
-      <div className="w-3/4 p-8 overflow-y-auto">
+      <div className="w-full md:w-3/4 p-4 md:p-8 overflow-y-auto flex-1">
 
         {/* Back */}
         <button
@@ -117,7 +112,7 @@ const ProgressiveLens = () => {
         </button>
 
         {/* Title */}
-        <h1 className="text-3xl font-bold mb-6">
+        <h1 className="text-2xl md:text-3xl font-bold mb-6">
           {selectedLens.name}
         </h1>
 
@@ -151,15 +146,21 @@ const ProgressiveLens = () => {
           <h3 className="text-lg mb-2">Supported Power</h3>
           <p className="text-gray-400">{selectedLens.power}</p>
         </div>
-        <button
+            <button
   onClick={() =>
     navigate("/new-customer", {
       state: {
-        selectedLens: {
-          name: selectedLens.name,
-          price: selectedLens.price,
-          framePrice: location.state?.framePrice
-        }
+        selectedLens: selectedLens,
+
+        customerName: location.state?.customerName,
+        mobile: location.state?.mobile,
+        address: location.state?.address,
+        bookingDate: location.state?.bookingDate,
+
+        rightEye: location.state?.rightEye,
+        leftEye: location.state?.leftEye,
+        prescriptionType: location.state?.prescriptionType,
+        prescriptionImage: location.state?.prescriptionImage,
       }
     })
   }
