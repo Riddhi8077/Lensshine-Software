@@ -1324,6 +1324,55 @@ onClick={() => {
 
   {!loading && <ChevronRight className="h-4 w-4 ml-1" />}
 </button>
+<button
+  data-testid="step-next-btn"
+onClick={() => {
+  if (step === 3) {
+    try {
+      const finalData = {
+        customer_name: customerName,
+        mobile: mobile,
+        address: address || "",
+        bookingDate: bookingDate,
+
+        frame_price: Number(framePrice) || 0,
+
+        lens_name: selectedLens?.name || "Lens",
+        lens_price: Number(selectedLens?.price) || 0,
+
+        total_amount: totalAmount,
+        paid_amount: payAmount,
+        remaining_amount: totalAmount - payAmount,
+      };
+
+      console.log("FINAL ORDER DATA:", finalData);
+
+      setOrderData(finalData);
+
+      setStep(4);
+    } catch (err) {
+      console.error("Order Error:", err);
+    }
+  } else {
+    nextStep();
+  }
+}}
+  disabled={
+    loading ||
+    (step === 3
+      ? !selectedLens || !customerName || !mobile
+      : !canNext())
+  }
+  className="bg-[#d4af37] text-black hover:bg-[#f3e5ab] rounded-none px-8 h-11 font-medium disabled:opacity-30 flex items-center"
+>
+  {loading
+    ? "Creating..."
+    : step === 3
+    ? "Confirm Order"
+    : "Next"}
+
+  {!loading && <ChevronRight className="h-4 w-4 ml-1" />}
+</button>
           </div>
         )}
 
