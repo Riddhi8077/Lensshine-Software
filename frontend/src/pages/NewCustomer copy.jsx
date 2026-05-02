@@ -5,6 +5,7 @@ import axios from "axios";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import QRCode from "react-qr-code";
+import { Html5Qrcode } from "html5-qrcode";
 
 import {
   Glasses, User, Eye, FileText, CreditCard, CheckCircle, Check,
@@ -23,6 +24,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popove
 import { Calendar } from "../components/ui/calendar";
 import { Button } from "../components/ui/button";
 import { useRef } from "react";
+import { useLocation } from "react-router-dom";
 
 const API = "http://localhost:5000"; // change later if needed
 
@@ -46,6 +48,9 @@ const slideVariants = {
 };
 
 function NewCustomer() {
+  const [showScanner, setShowScanner] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation(); 
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
 
@@ -68,6 +73,90 @@ function NewCustomer() {
   // Step 2: Lens
   const [lenses, setLenses] = useState([]);
   const [selectedLens, setSelectedLens] = useState(null);
+  const lensPrice = Number(selectedLens?.price) || 0;
+  const frameAmount = Number(framePrice) || 0;
+
+const totalAmount = frameAmount + lensPrice;
+
+console.log("LENS:", selectedLens);
+console.log("TOTAL:", totalAmount);
+console.log("ENTERED FRAME:", framePrice);
+
+useEffect(() => {
+  let scanner;
+
+  if (showScanner) {
+    scanner = new Html5Qrcode("reader");
+
+    scanner
+      .start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: 220,
+        },
+        (decodedText) => {
+          setFramePrice(Number(decodedText));
+          setShowScanner(false);
+
+          scanner.stop().then(() => {
+            scanner.clear();
+          });
+        },
+        () => {}
+      )
+      .catch((err) => {
+        console.log(err);
+      });
+  }
+
+  return () => {
+    if (scanner) {
+      scanner.stop().catch(() => {});
+    }
+  };
+}, [showScanner]);
+
+useEffect(() => {
+  const storedFrame = localStorage.getItem("framePrice");
+
+  if (storedFrame) {
+    setFramePrice(Number(storedFrame));
+  }
+
+  if (location.state) {
+
+    // Restore lens
+    if (location.state.selectedLens) {
+      setSelectedLens(location.state.selectedLens);
+    }
+
+    // Restore customer data
+    setCustomerName(location.state.customerName || "");
+    setMobile(location.state.mobile || "");
+    setAddress(location.state.address || "");
+
+    // Restore prescription
+    setRightEye(location.state.rightEye || "");
+    setLeftEye(location.state.leftEye || "");
+    setPrescriptionType(
+      location.state.prescriptionType || "manual"
+    );
+    setPrescriptionImage(
+      location.state.prescriptionImage || ""
+    );
+
+    // Restore booking date
+    if (location.state.bookingDate) {
+      setBookingDate(new Date(location.state.bookingDate));
+    }
+
+    // Go back to summary
+    if (location.state.selectedLens) {
+      setStep(3);
+    }
+  }
+}, [location.state]); 
 
   // Step 3+: Order/Payment
   const [orderId, setOrderId] = useState(null);
@@ -75,14 +164,8 @@ function NewCustomer() {
   const [payAmount, setPayAmount] = useState(0);
   const [payMethod, setPayMethod] = useState("qr");
 
-  const totalAmount =
-    (parseFloat(framePrice) || 0) + (selectedLens?.price || 0);
-
   const [couponApplied, setCouponApplied] = useState(false);
 
-  useEffect(() => {
-    axios.get(`${API}/lenses`).then(r => setLenses(r.data)).catch(() => {});
-  }, []);
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -126,13 +209,19 @@ function NewCustomer() {
         payments: [],
       };
       const res = await axios.post(`${API}/orders`, payload);
+      console.log("ORDER RESPONSE:", res.data);
       setOrderId(res.data.id);
       setOrderData(res.data);
       setPayAmount(totalAmount);
       setStep(4);
-    } catch {
-      toast.error("Failed to create order");
-    } finally {
+    } catch (err) {
+  console.error("CREATE ORDER ERROR:", err);
+  console.log("SERVER RESPONSE:", err?.response?.data);
+
+  toast.error(
+    err?.response?.data?.message || "Failed to create order"
+  );
+} finally {
       setLoading(false);
     }
   }, [customerName, mobile, address, bookingDate, prescriptionType, prescriptionImage, rightEye, leftEye, framePrice, selectedLens, totalAmount]);
@@ -164,13 +253,18 @@ function NewCustomer() {
   };
 
   const nextStep = () => {
-    if (step === 3) { createOrder(); return; }
-    if (step < 6) setStep(step + 1);
-  };
+  if (step === 3) {
+    createOrder();
+    return;
+  }
+  if (step < 6) setStep(step + 1); 
+};
 
   const prevStep = () => {
     if (step > 0) setStep(step - 1);
   };
+
+  
 
   // Auto-fill from existing customer
   const checkExistingCustomer = async (mobileNum) => {
@@ -237,6 +331,8 @@ const sendInvoice = async () => {
 
     const imageUrl = uploadData.secure_url;
     console.log("Image URL:", imageUrl);
+    console.log("ORDER DATA:", orderData);
+    console.log("CUSTOMER NAME:", customerName);
 
     // STEP 4: Send email
     const res = await fetch("http://localhost:5000/send-invoice", {
@@ -284,58 +380,66 @@ const generateInvoiceImage = async () => {
   <div data-testid="new-customer-page" className="pt-20 pb-12 px-4 sm:px-6 min-h-screen bg-background text-foreground">
     <div className="max-w-4xl mx-auto">
       
-      {/* Step Indicator */}
-      <div data-testid="step-indicator" className="flex items-center justify-center mb-10 overflow-x-auto pb-2">
-        {STEPS.map((s, i) => {
-          const Icon = s.icon;
-          const isActive = i === step;
-          const isCompleted = i < step;
+    {/* Step Indicator */}
+<div
+  data-testid="step-indicator"
+  className="w-full overflow-x-auto scrollbar-hide mb-8"
+>
+  <div className="flex items-center justify-start sm:justify-center min-w-max px-4">
+    {STEPS.map((s, i) => {
+      const Icon = s.icon;
+      const isActive = i === step;
+      const isCompleted = i < step;
 
-          return (
-            <div key={i} className="flex items-center">
-              
-              <div className="flex flex-col items-center min-w-[56px]">
-                <div
-                  className={cn(
-                    "w-9 h-9 rounded-full flex items-center justify-center text-sm transition-all duration-300",
-                    isActive && "bg-[#d4af37] text-black",
-                    isCompleted && "bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]",
-                    !isActive && !isCompleted && "bg-card border-border/5 text-white/30 border border-white/10"
-                  )}
-                >
-                  {isCompleted ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <Icon className="h-4 w-4" />
-                  )}
-                </div>
-
-                <span
-                  className={cn(
-                    "text-[10px] mt-1.5 tracking-wide",
-                    isActive
-                      ? "text-[#d4af37]"
-                      : isCompleted
-                      ? "text-[#d4af37]/60"
-                      : "text-white/30"
-                  )}
-                >
-                  {s.label}
-                </span>
-              </div>
-
-              {i < STEPS.length - 1 && (
-                <div
-                  className={cn(
-                    "w-6 sm:w-10 h-px mx-1 transition-colors",
-                    i < step ? "bg-[#d4af37]/40" : "bg-card border-border/10"
-                  )}
-                />
+      return (
+        <div key={i} className="flex items-center flex-shrink-0">
+          
+          <div className="flex flex-col items-center min-w-[70px] sm:min-w-[90px]">
+            <div
+              className={cn(
+                "w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-sm transition-all duration-300",
+                isActive && "bg-[#d4af37] text-black shadow-lg shadow-[#d4af37]/30",
+                isCompleted &&
+                  "bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]",
+                !isActive &&
+                  !isCompleted &&
+                  "bg-card text-white/30 border border-white/10"
+              )}
+            >
+              {isCompleted ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Icon className="h-4 w-4" />
               )}
             </div>
-          );
-        })}
-      </div>
+
+            <span
+              className={cn(
+                "text-[10px] sm:text-xs mt-2 text-center whitespace-nowrap",
+                isActive
+                  ? "text-[#d4af37]"
+                  : isCompleted
+                  ? "text-[#d4af37]/70"
+                  : "text-white/40"
+              )}
+            >
+              {s.label}
+            </span>
+          </div>
+
+          {i < STEPS.length - 1 && (
+            <div
+              className={cn(
+                "w-8 sm:w-14 h-[1px] mx-1 sm:mx-2 transition-colors",
+                i < step ? "bg-[#d4af37]/50" : "bg-white/10"
+              )}
+            />
+          )}
+        </div>
+      );
+    })}
+  </div>
+</div>
 
       {/* Step Content */}
 <AnimatePresence mode="wait">
@@ -369,7 +473,7 @@ const generateInvoiceImage = async () => {
         data-testid="frame-qr-option"
         onClick={() => {
           setFrameMethod("qr");
-          handleSimulateScan();
+          setShowScanner(true);
         }}
         className={`cursor-pointer rounded-xl border p-6 flex flex-col items-center justify-center transition-all duration-300 hover:-translate-y-1
         ${
@@ -388,6 +492,16 @@ const generateInvoiceImage = async () => {
           Auto-detect frame price
         </p>
 
+        {showScanner && (
+  <div className="max-w-md mx-auto mt-6">
+    
+    <div
+      id="reader"
+      className="overflow-hidden rounded-xl border border-white/10"
+    />
+
+  </div>
+)}
         {scanActive && (
           <p className="text-primary text-xs mt-2 animate-pulse">
             Scanning...
@@ -431,7 +545,12 @@ const generateInvoiceImage = async () => {
   type="number"
   placeholder="0"
   value={framePrice}
-  onChange={(e) => setFramePrice(e.target.value)}
+  onChange={(e) => {
+  const value = Number(e.target.value);
+  setFramePrice(value);
+
+  localStorage.setItem("framePrice", value);
+}}
   className="pl-20 h-12 left-7 text-lg bg-card border border-border text-foreground focus:border-primary focus:ring-1 focus:ring-primary"
   style={{ backgroundColor: "hsl(var(--card))" }}
 />
@@ -616,146 +735,50 @@ const generateInvoiceImage = async () => {
   </div>
 )}
 
-{/* Step 2: Lens Selection */}
 {step === 2 && (
-  <div className="space-y-10 max-w-6xl mx-auto">
+  <div className="flex flex-col items-center justify-center h-[60vh]">
 
-    {/* Heading */}
-    <div className="text-center">
-      <h2
-        className="text-3xl sm:text-4xl tracking-tight text-white"
-        style={{ fontFamily: "'Cormorant Garamond', serif" }}
-      >
-        Choose a Lens
-      </h2>
-      <p className="text-white/50 mt-2 text-sm">
-        Select the perfect lens for your customer
-      </p>
-    </div>
+    <h2 className="text-3xl text-white mb-6">
+      Choose Lens Type
+    </h2>
 
-    {/* 👇 FALLBACK DATA (IMPORTANT FIX) */}
-    {(() => {
-      const fallbackLenses = [
-        {
-          id: 1,
-          name: "Blue Cut Lens",
-          description: "Blocks harmful blue light from digital screens",
-          price: 800,
-          image: "https://images.unsplash.com/photo-1583394838336-acd977736f90",
-          pros: ["Reduces eye strain", "Better sleep quality", "UV protection"],
-          cons: ["Slight yellow tint", "Higher cost"]
-        },
-        {
-          id: 2,
-          name: "Anti-Glare Lens",
-          description: "Minimizes reflections for crystal clear vision",
-          price: 600,
-          image: "https://images.unsplash.com/photo-1511499767150-a48a237f0083",
-          pros: ["Reduced glare", "Better aesthetics", "Easier cleaning"],
-          cons: ["Scratches visible", "Needs care"]
-        },
-        {
-          id: 3,
-          name: "Photochromic Lens",
-          description: "Automatically adapts to changing light",
-          price: 1500,
-          image: "https://images.unsplash.com/photo-1577803645773-f96470509666",
-          pros: ["Indoor/outdoor", "UV protection", "Convenient"],
-          cons: ["Slower in cold", "Not great in cars"]
-        },
-        {
-          id: 4,
-          name: "Progressive Lens",
-          description: "Seamless vision for all distances",
-          price: 2500,
-          image: "https://images.unsplash.com/photo-1517841905240-472988babdf9",
-          pros: ["No visible line", "All distances", "Modern"],
-          cons: ["Adaptation needed", "Peripheral distortion"]
-        }
-      ];
+    <button
+    onClick={() =>
+  navigate("/lens-selection", {
+  state: {
+    framePrice: Number(framePrice) || 0,
+    from: "new-customer",
 
-      const data = lenses && lenses.length > 0 ? lenses : fallbackLenses;
-
-      return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {data.map((lens) => {
-            const isSelected = selectedLens?.id === lens.id;
-
-            return (
-              <div
-                key={lens.id}
-                data-testid={`lens-card-${lens.id}`}
-                onClick={() => setSelectedLens(lens)}
-                className={`relative cursor-pointer rounded-xl border p-5 transition-all duration-300 bg-[#111111] hover:-translate-y-1 hover:border-[#d4af37]/40
-                  ${isSelected ? "border-[#d4af37] ring-1 ring-[#d4af37]" : "border-white/10"}
-                `}
-              >
-                {/* Selected Tick */}
-                {isSelected && (
-                  <div className="absolute top-3 right-3">
-                    <div className="w-6 h-6 bg-[#d4af37] rounded-full flex items-center justify-center">
-                      <Check className="h-3.5 w-3.5 text-black" />
-                    </div>
-                  </div>
-                )}
-
-                {/* Image */}
-                <div className="w-full h-36 mb-4 overflow-hidden rounded-lg">
-                  <img
-                    src={lens.image}
-                    alt={lens.name}
-                    className="w-full h-full object-cover opacity-90 hover:scale-105 transition duration-300"
-                  />
-                </div>
-
-                {/* Title */}
-                <h3 className="text-white font-semibold text-sm mb-1">
-                  {lens.name}
-                </h3>
-
-                {/* Description */}
-                <p className="text-white/40 text-xs mb-3 line-clamp-2">
-                  {lens.description}
-                </p>
-
-                {/* Pros */}
-                <div className="flex flex-wrap gap-1 mb-2">
-                  {lens.pros.map((p, i) => (
-                    <span
-                      key={i}
-                      className="text-[10px] px-2 py-[2px] rounded-md border border-green-500/30 text-green-400 bg-green-500/5"
-                    >
-                      {p}
-                    </span>
-                  ))}
-                </div>
-
-                {/* Cons */}
-                <div className="flex flex-wrap gap-1 mb-3">
-                  {lens.cons.map((c, i) => (
-                    <span
-                      key={i}
-                      className="text-[10px] px-2 py-[2px] rounded-md border border-red-500/30 text-red-400 bg-red-500/5"
-                    >
-                      {c}
-                    </span>
-                  ))}
-                </div>
-
-                {/* Price */}
-                <p className="text-[#d4af37] font-semibold text-lg">
-                  ₹{lens.price.toLocaleString()}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-      );
-    })()}
+    customerName,
+    mobile,
+    address,
+    bookingDate,
+    rightEye,
+    leftEye,
+    prescriptionType,
+    prescriptionImage,
+  }
+})
+}
+    className="bg-[#d4af37] text-black px-6 py-3 rounded-lg"
+    >
+      Select Lens
+    </button>
+    
+    {selectedLens && (
+  <div className="bg-[#111] p-4 rounded-lg mt-6">
+    <h3 className="text-white text-lg mb-2">Selected Lens</h3>
+    <p>{selectedLens.name}</p>
+    <p className="text-[#d4af37] font-semibold">
+      ₹{selectedLens.price}
+    </p>
   </div>
 )}
 
-         {/* Step 3: Order Summary */}
+  </div>
+)}
+
+{/* Step 3: Order Summary */}
 {step === 3 && (
   <div className="max-w-5xl mx-auto space-y-10">
 
@@ -781,14 +804,14 @@ const generateInvoiceImage = async () => {
           <div className="flex justify-between">
             <span className="text-white/50">Customer</span>
             <span className="text-white font-medium uppercase">
-              {customerName || "—"}
+              {orderData?.customer_name || customerName || "—"}
             </span>
           </div>
 
           <div className="flex justify-between">
             <span className="text-white/50">Mobile</span>
             <span className="text-white">
-              {mobile || "—"}
+              {orderData?.mobile || mobile || "—"}
             </span>
           </div>
 
@@ -818,9 +841,7 @@ const generateInvoiceImage = async () => {
               Lens {selectedLens ? `- ${selectedLens.name}` : ""}
             </span>
             <span className="text-white">
-              ₹{selectedLens?.price
-                ? Number(selectedLens.price).toLocaleString()
-                : "0"}
+              ₹{lensPrice.toLocaleString()}
             </span>
           </div>
         </div>
@@ -830,14 +851,20 @@ const generateInvoiceImage = async () => {
 
         {/* Total */}
         <div className="flex justify-between items-center text-lg font-semibold">
-          <span className="text-white">Total</span>
-          <span className="text-[#d4af37]">
-            ₹
-            {(
-              (Number(framePrice) || 0) +
-              (Number(selectedLens?.price) || 0)
-            ).toLocaleString()}
-          </span>
+  <span className="text-white">Total</span>
+  <span className="text-[#d4af37]">
+    ₹{totalAmount.toLocaleString()}
+  </span>
+</div>
+
+{/* 🔥 BUTTON FIXED POSITION */}
+<div className="flex justify-end mt-6">
+  <button
+    onClick={createOrder}
+    className="bg-[#d4af37] text-black px-6 py-3 rounded-lg hover:bg-[#f3e5ab]"
+  >
+    Confirm Order →
+  </button>
         </div>
       </div>
     </div>
@@ -980,13 +1007,23 @@ const generateInvoiceImage = async () => {
               onClick={() => {
                 const remaining = total - amount;
 
-                setOrderData({
-                  total_amount: total,
-                  paid_amount: finalAmount,
-                  remaining_amount: remaining > 0 ? remaining : 0,
-                  payment_status: remaining <= 0 ? "paid" : "partial",
-                  discount: discount,
-                });
+                setOrderData((prev) => ({
+  ...prev,
+
+  customer_name: customerName,
+  mobile: mobile,
+  address: address,
+
+  total_amount: total,
+
+  paid_amount: finalAmount,
+
+  remaining_amount: remaining > 0 ? remaining : 0,
+
+  payment_status: remaining <= 0 ? "paid" : "partial",
+
+  discount: discount,
+}));
 
                 setStep(5);
               }}
@@ -1020,7 +1057,7 @@ const generateInvoiceImage = async () => {
       </h2>
 
       <p className="text-white/40 text-sm mt-1">
-        Order #{orderId?.slice(0, 8) || "----"}
+        Order #{String(orderId)?.slice(0, 8) || "----"}
       </p>
     </div>
 
@@ -1041,7 +1078,7 @@ const generateInvoiceImage = async () => {
         <div className="text-right">
           <p className="text-white/40 text-xs">Invoice</p>
           <p className="text-white text-sm font-mono">
-            #{orderId?.slice(0, 8) || "----"}
+            #{String(orderId)?.slice(0, 8) || "----"}
           </p>
           <p className="text-white/40 text-xs mt-1">
             {bookingDate
@@ -1054,18 +1091,30 @@ const generateInvoiceImage = async () => {
       <div className="border-t border-white/10 mb-4" />
 
       {/* Bill To */}
-      <div className="mb-4">
-        <p className="text-white/40 text-xs uppercase mb-1">Bill To</p>
-        <p className="text-white font-medium">
-          {customerName || "N/A"}
-        </p>
-        <p className="text-white/60 text-sm">
-          {mobile || "N/A"}
-        </p>
-        {address && (
-          <p className="text-white/40 text-sm">{address}</p>
-        )}
-      </div>
+<div className="mb-4">
+  <p className="text-white/40 text-xs uppercase mb-1">
+    Bill To
+  </p>
+
+  <p className="text-white font-medium">
+    {orderData?.customer_name ||
+      orderData?.full_name ||
+      customerName ||
+      "N/A"}
+  </p>
+
+  <p className="text-white/60 text-sm">
+    {orderData?.mobile?.toString() ||
+      mobile?.toString() ||
+      "N/A"}
+  </p>
+
+  {(orderData?.address || address) && (
+    <p className="text-white/40 text-sm">
+      {orderData?.address || address}
+    </p>
+  )}
+</div>
 
       {/* Items */}
       <div className="text-sm">
@@ -1108,22 +1157,20 @@ const generateInvoiceImage = async () => {
         </div>
 
         {/* Paid */}
-        <div className="flex justify-between text-sm mt-1">
-          <span className="text-green-400">Paid</span>
-          <span className="text-green-400">
-            ₹
-            {(
-              (Number(framePrice) || 0) +
-              (Number(selectedLens?.price) || 0)
-            ).toLocaleString()}
-          </span>
-        </div>
+<div className="flex justify-between text-sm mt-1">
+  <span className="text-green-400">Paid</span>
+  <span className="text-green-400">
+    ₹{Number(orderData?.paid_amount || 0).toLocaleString()}
+  </span>
+</div>
 
-        {/* Balance (always 0 for now) */}
-        <div className="flex justify-between text-amber-400 text-sm">
-          <span>Balance</span>
-          <span>₹0</span>
-        </div>
+{/* Balance */}
+<div className="flex justify-between text-amber-400 text-sm">
+  <span>Balance</span>
+  <span>
+    ₹{Number(orderData?.remaining_amount || 0).toLocaleString()}
+  </span>
+</div>
 
       </div>
     </div>
@@ -1135,7 +1182,6 @@ const generateInvoiceImage = async () => {
   onChange={(e) => setCustomerEmail(e.target.value)}
   className="w-full mb-4 p-3 bg-[#141414] border border-white/20 text-white"
 />
-
 
     {/* Buttons */}
     <div className="flex gap-3">
@@ -1197,15 +1243,9 @@ onClick={() => {
         lens_name: selectedLens?.name || "Lens",
         lens_price: Number(selectedLens?.price) || 0,
 
-        total_amount:
-          (Number(framePrice) || 0) +
-          (Number(selectedLens?.price) || 0),
-
-        paid_amount:
-          (Number(framePrice) || 0) +
-          (Number(selectedLens?.price) || 0),
-
-        remaining_amount: 0,
+        total_amount: totalAmount,
+        paid_amount: payAmount,
+        remaining_amount: totalAmount - payAmount,
       };
 
       console.log("FINAL ORDER DATA:", finalData);

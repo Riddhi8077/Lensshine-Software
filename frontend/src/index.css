@@ -33,6 +33,47 @@
 }
 
 @layer base {
+  .light-mode {
+    --background: 0 0% 96%;
+    --foreground: 240 10% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 9%;
+    --secondary: 0 0% 92%;
+    --secondary-foreground: 240 10% 9%;
+    --muted: 0 0% 92%;
+    --muted-foreground: 240 4% 40%;
+    --border: 0 0% 82%;
+    --input: 0 0% 82%;
+  }
+}
+
+@layer base {
+  .light-mode .text-white {
+    color: #111111 !important;
+  }
+  .light-mode .text-white\/60,
+  .light-mode .text-white\/50,
+  .light-mode .text-white\/40,
+  .light-mode .text-white\/30 {
+    color: rgba(17, 17, 17, 0.65) !important;
+  }
+  .light-mode [class*="bg-[#141414]"],
+  .light-mode [class*="bg-[#111]"],
+  .light-mode [class*="bg-[#0f0f0f]"],
+  .light-mode [class*="from-[#1a1a1a]"],
+  .light-mode [class*="to-[#0f0f0f]"] {
+    background-color: #ffffff !important;
+    background-image: none !important;
+  }
+  .light-mode [class*="border-white/10"],
+  .light-mode [class*="border-white/20"] {
+    border-color: rgba(17, 17, 17, 0.18) !important;
+  }
+}
+
+@layer base {
   * {
     @apply border-border;
   }
@@ -89,4 +130,57 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #d4af37;
+}
+
+/* PRINT CSS - Only show invoice component */
+@media print {
+  /* Show only invoice section, hide everything else */
+  body > *:not(#invoice):not(.invoice-only-container) {
+    display: none !important;
+    visibility: hidden !important;
+  }
+  
+  /* Force show only #invoice element properly */
+  #invoice {
+    visibility: visible !important;
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: 0 !important;
+    margin: 0 auto !important;
+    width: 100% !important;
+    max-width: 700px !important;
+    padding: 20px !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    page-break-inside: avoid;
+  }
+  
+  /* Ensure invoice children are visible */
+  #invoice,
+  #invoice > * {
+    visibility: visible !important;
+    display: block !important;
+  }
+  
+  /* Hide step indicators and navigation */
+  [data-testid="step-indicator"],
+  [data-testid="step-back-btn"],
+  [data-testid="step-next-btn"],
+  [data-testid="proceed-invoice-btn"],
+  .no-print {
+    display: none !important;
+    visibility: hidden !important;
+  }
+  
+  /* Page setup */
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
 }

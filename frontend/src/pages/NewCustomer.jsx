@@ -25,8 +25,7 @@ import { Calendar } from "../components/ui/calendar";
 import { Button } from "../components/ui/button";
 import { useRef } from "react";
 import { useLocation } from "react-router-dom";
-
-const API = "http://localhost:5000"; // change later if needed
+import { API } from "../config/api";
 
 // simple replacement of cn()
 const cn = (...classes) => classes.filter(Boolean).join(" ");
@@ -214,6 +213,7 @@ useEffect(() => {
       setOrderData(res.data);
       setPayAmount(totalAmount);
       setStep(4);
+      return res.data;
     } catch (err) {
   console.error("CREATE ORDER ERROR:", err);
   console.log("SERVER RESPONSE:", err?.response?.data);
@@ -221,17 +221,18 @@ useEffect(() => {
   toast.error(
     err?.response?.data?.message || "Failed to create order"
   );
+  return null;
 } finally {
       setLoading(false);
     }
   }, [customerName, mobile, address, bookingDate, prescriptionType, prescriptionImage, rightEye, leftEye, framePrice, selectedLens, totalAmount]);
 
-  const confirmPayment = useCallback(async () => {
-    if (!orderId || payAmount <= 0) return;
+  const confirmPayment = useCallback(async (amountToPay = payAmount) => {
+    if (!orderId || amountToPay <= 0) return;
     setLoading(true);
     try {
       const res = await axios.patch(`${API}/orders/${orderId}/payment`, {
-        amount: payAmount,
+        amount: amountToPay,
         method: payMethod,
       });
       setOrderData(res.data);
@@ -280,79 +281,170 @@ useEffect(() => {
     } catch {}
   };
 
-  // PRINT FUNCTION (clean + safe)
-const handlePrint = () => {
-  window.print();
+// PRINT FUNCTION - Clean print with full professional styling preserved
+  const handlePrint = useCallback(async () => {
+    const printContent = invoiceRef.current;
+    if (!printContent) return;
+    
+    // Clone the invoice element to preserve all computed styles
+    const clone = printContent.cloneNode(true);
+    
+    // Ensure inline styles for background colors
+    clone.style.backgroundColor = '#ffffff';
+    clone.style.borderRadius = '12px';
+    clone.style.overflow = 'hidden';
+    
+    // Create a temporary container
+    const tempDiv = document.createElement('div');
+    tempDiv.style.position = 'absolute';
+    tempDiv.style.left = '-9999px';
+    tempDiv.style.top = '0';
+    tempDiv.style.width = '700px';
+    tempDiv.appendChild(clone);
+    document.body.appendChild(tempDiv);
+    
+    try {
+      await waitForImagesInElement(clone);
+      // Generate image with html-to-image preserving styles
+      const imageBlob = await import("html-to-image").then(module => 
+        module.toBlob(clone, {
+          cacheBust: true,
+          pixelRatio: 2,
+          backgroundColor: "#ffffff",
+          style: { 
+            transform: 'none',
+            transformOrigin: 'top left'
+          }
+        })
+      );
+      
+      if (!imageBlob) {
+        throw new Error('Failed to generate image');
+      }
+      
+      // Open print window with the image
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        alert('Please allow popups for printing');
+        return;
+      }
+      
+      const imageUrl = URL.createObjectURL(imageBlob);
+      
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Lensshine Invoice</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              background: white;
+              margin: 0;
+              padding: 20px;
+              display: flex;
+              justify-content: center;
+              align-items: flex-start;
+              min-height: 100vh;
+            }
+            @page { margin: 0; size: auto; }
+            img {
+              max-width: 100%;
+              height: auto;
+              display: block;
+              box-shadow: none;
+            }
+            @media print {
+              body { padding: 0; }
+              img { width: 100%; height: auto; }
+            }
+          </style>
+        </head>
+        <body>
+          <img src="${imageUrl}" alt="Lensshine Invoice" />
+        </body>
+        </html>
+      `);
+      
+      printWindow.document.close();
+      printWindow.focus();
+      
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+        URL.revokeObjectURL(imageUrl);
+      }, 500);
+      
+    } catch (err) {
+      console.error('Print error:', err);
+      alert('Failed to generate print. Using fallback.');
+    } finally {
+      // Clean up temp element
+      document.body.removeChild(tempDiv);
+    }
+  }, []);
+
+const invoiceRef = React.useRef(null);
+
+const waitForImagesInElement = async (element) => {
+  if (!element) return;
+  const images = Array.from(element.querySelectorAll("img"));
+  await Promise.all(
+    images.map((img) => {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+      return new Promise((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+      });
+    })
+  );
 };
 
-const invoiceRef = useRef(null);
+const blobToDataUrl = (blob) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 
 const sendInvoice = async () => {
   try {
-    // STEP 1: Generate image
     const imageBlob = await generateInvoiceImage();
-   console.log("Image Blob:", imageBlob);
-
-    // 🔥 STEP 3 TEST
-    if (imageBlob) {
-      const url = URL.createObjectURL(imageBlob);
-      window.open(url); // opens image in new tab
-    } else {
+    if (!imageBlob) {
       alert("Image not generated");
       return;
     }
 
-    // STEP 2: Convert Blob → File (VERY IMPORTANT)
-    const imageFile = new File([imageBlob], "invoice.png", {
-      type: "image/png",
-    });
+    const invoiceDataUrl = await blobToDataUrl(imageBlob);
 
-    // STEP 3: Upload to Cloudinary
-    const formData = new FormData();
-    formData.append("file", imageFile);
-    formData.append("upload_preset", "lensshine_invoice");
-
-    const uploadRes = await fetch(
-      "https://api.cloudinary.com/v1_1/dtgkihdfl/image/upload",
-      {
-        method: "POST",
-        body: formData,
-      }
-    );
-
-    const uploadData = await uploadRes.json();
-    console.log("Cloudinary response:", uploadData);
-
-    // ❌ STOP if upload failed
-    if (!uploadData.secure_url) {
-      alert("Image upload failed");
-      return;
-    }
-
-    const imageUrl = uploadData.secure_url;
-    console.log("Image URL:", imageUrl);
-    console.log("ORDER DATA:", orderData);
-    console.log("CUSTOMER NAME:", customerName);
-
-    // STEP 4: Send email
-    const res = await fetch("http://localhost:5000/send-invoice", {
+    const res = await fetch(`${API}/send-invoice`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         email: customerEmail,
-        imageUrl,
+        invoiceDataUrl,
+        imageUrl: invoiceDataUrl,
       }),
     });
 
-    const text = await res.text();
-    console.log(text);
+    if (!res.ok) {
+      const errorText = await res.text();
+      let parsedMessage = "Failed to send invoice email";
+      try {
+        const parsed = JSON.parse(errorText);
+        parsedMessage = parsed?.message || parsedMessage;
+      } catch {}
+      throw new Error(parsedMessage);
+    }
 
     alert("Invoice sent successfully!");
   } catch (err) {
     console.error("ERROR:", err);
-    alert("Error sending email");
+    alert(err?.message || "Error sending email");
   }
 };
 
@@ -362,12 +454,13 @@ const generateInvoiceImage = async () => {
   const htmlToImage = await import("html-to-image");
 
   try {
+    await waitForImagesInElement(invoiceRef.current);
     return await htmlToImage.toBlob(invoiceRef.current, {
       cacheBust: true,
       pixelRatio: 2,
-      backgroundColor: "#121212",
+      backgroundColor: "#ffffff",
 
-      // 🔥 THIS LINE FIXES YOUR ERROR
+      // This line fixes your error - white background for clean PDF
       skipFonts: true,
     });
   } catch (err) {
@@ -990,7 +1083,7 @@ const generateInvoiceImage = async () => {
               <div className="bg-black border border-white/10 rounded-xl p-6 flex flex-col items-center">
 
                 <QRCode
-                  value={`upi://pay?pa=devchaudharym@okicici&pn=Lensshine&am=${finalAmount}&cu=INR`}
+                  value={`upi://pay?pa=7668368181@okbizaxis&pn=Lensshine&am=${finalAmount}&cu=INR`}
                   size={200}
                 />
 
@@ -1004,29 +1097,7 @@ const generateInvoiceImage = async () => {
           {/* CONFIRM */}
           <div className="max-w-md mx-auto">
             <button
-              onClick={() => {
-                const remaining = total - amount;
-
-                setOrderData((prev) => ({
-  ...prev,
-
-  customer_name: customerName,
-  mobile: mobile,
-  address: address,
-
-  total_amount: total,
-
-  paid_amount: finalAmount,
-
-  remaining_amount: remaining > 0 ? remaining : 0,
-
-  payment_status: remaining <= 0 ? "paid" : "partial",
-
-  discount: discount,
-}));
-
-                setStep(5);
-              }}
+              onClick={() => confirmPayment(finalAmount)}
               disabled={finalAmount <= 0}
               className="w-full bg-[#d4af37] text-black h-12 font-semibold disabled:opacity-30"
             >
@@ -1061,152 +1132,161 @@ const generateInvoiceImage = async () => {
       </p>
     </div>
 
-    {/* Invoice */}
+    {/* Invoice - Professional White Premium Design */}
     <div
-       ref={invoiceRef} id="invoice"
-      className="bg-[#121212] border border-white/10 rounded-lg p-6"
+      ref={invoiceRef}
+      id="invoice"
+      className="bg-white rounded-xl overflow-hidden shadow-xl"
     >
-      {/* Top */}
-      <div className="flex justify-between items-start mb-5">
-        <div>
-          <h3 className="text-lg font-semibold text-white">
-            Lens<span className="text-[#d4af37]">shine</span>
-          </h3>
-          <p className="text-white/40 text-xs">Premium Optical Shop</p>
-        </div>
+      {/* Invoice Header */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-6 py-5">
+        <div className="flex justify-between items-start">
+          <div>
+            <img
+              src="/logo.png"
+              alt="Lensshine logo"
+              className="h-8 sm:h-9 w-auto object-contain"
+              loading="eager"
+            />
+            <p className="text-white/60 text-xs mt-0.5">Premium Optical Store</p>
+          </div>
 
-        <div className="text-right">
-          <p className="text-white/40 text-xs">Invoice</p>
-          <p className="text-white text-sm font-mono">
-            #{String(orderId)?.slice(0, 8) || "----"}
-          </p>
-          <p className="text-white/40 text-xs mt-1">
-            {bookingDate
-              ? format(new Date(bookingDate), "dd MMM yyyy")
-              : "N/A"}
-          </p>
+          <div className="text-right">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-white/60 text-xs">INVOICE</span>
+              {orderData?.payment_status === "paid" ? (
+                <span className="bg-green-500/20 text-green-400 text-xs px-2 py-0.5 rounded-full">PAID</span>
+              ) : (
+                <span className="bg-amber-500/20 text-amber-400 text-xs px-2 py-0.5 rounded-full">PENDING</span>
+              )}
+            </div>
+            <p className="text-white text-sm font-mono">
+              #{String(orderId)?.slice(0, 8) || "----"}
+            </p>
+            <p className="text-white/60 text-xs mt-1">
+              {bookingDate ? format(new Date(bookingDate), "dd MMM yyyy") : "N/A"}
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="border-t border-white/10 mb-4" />
-
-      {/* Bill To */}
-<div className="mb-4">
-  <p className="text-white/40 text-xs uppercase mb-1">
-    Bill To
-  </p>
-
-  <p className="text-white font-medium">
-    {orderData?.customer_name ||
-      orderData?.full_name ||
-      customerName ||
-      "N/A"}
-  </p>
-
-  <p className="text-white/60 text-sm">
-    {orderData?.mobile?.toString() ||
-      mobile?.toString() ||
-      "N/A"}
-  </p>
-
-  {(orderData?.address || address) && (
-    <p className="text-white/40 text-sm">
-      {orderData?.address || address}
-    </p>
-  )}
-</div>
-
-      {/* Items */}
-      <div className="text-sm">
-
-        <div className="flex justify-between py-2 border-b border-white/10 text-white/40">
-          <span>Item</span>
-          <span>Amount</span>
+      {/* Invoice Body */}
+      <div className="p-6">
+        {/* Customer Information Card */}
+        <div className="bg-slate-50 rounded-lg p-4 mb-4 border border-slate-200">
+          <div className="flex items-center gap-2 mb-2">
+            <User className="h-4 w-4 text-[#d4af37]" />
+            <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Customer Information</span>
+          </div>
+          <p className="text-slate-900 font-semibold">
+            {orderData?.customer_name || orderData?.full_name || customerName || "N/A"}
+          </p>
+          <p className="text-slate-600 text-sm">
+            {orderData?.mobile?.toString() || mobile?.toString() || "N/A"}
+          </p>
+          {(orderData?.address || address) && (
+            <p className="text-slate-500 text-sm mt-1">
+              {orderData?.address || address}
+            </p>
+          )}
         </div>
 
-        {/* Frame */}
-        <div className="flex justify-between py-3 border-b border-white/5 text-white">
-          <span>Frame</span>
-          <span>
-            ₹{framePrice ? Number(framePrice).toLocaleString() : "0"}
-          </span>
+        {/* Invoice Table */}
+        <div className="border border-slate-200 rounded-lg overflow-hidden mb-4">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-slate-100">
+                <th className="text-left py-3 px-4 text-slate-500 text-xs font-semibold uppercase tracking-wider">Product</th>
+                <th className="text-center py-3 px-4 text-slate-500 text-xs font-semibold uppercase tracking-wider">Qty</th>
+                <th className="text-right py-3 px-4 text-slate-500 text-xs font-semibold uppercase tracking-wider">Price</th>
+                <th className="text-right py-3 px-4 text-slate-500 text-xs font-semibold uppercase tracking-wider">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-t border-slate-200">
+                <td className="py-3 px-4 text-slate-900">Frame</td>
+                <td className="py-3 px-4 text-center text-slate-600">1</td>
+                <td className="py-3 px-4 text-right text-slate-600">₹{framePrice ? Number(framePrice).toLocaleString() : "0"}</td>
+                <td className="py-3 px-4 text-right text-slate-900 font-medium">₹{framePrice ? Number(framePrice).toLocaleString() : "0"}</td>
+              </tr>
+              <tr className="border-t border-slate-200">
+                <td className="py-3 px-4 text-slate-900">
+                  {selectedLens ? selectedLens.name : "Lens"}
+                </td>
+                <td className="py-3 px-4 text-center text-slate-600">1</td>
+                <td className="py-3 px-4 text-right text-slate-600">
+                  ₹{selectedLens?.price ? Number(selectedLens.price).toLocaleString() : "0"}
+                </td>
+                <td className="py-3 px-4 text-right text-slate-900 font-medium">
+                  ₹{selectedLens?.price ? Number(selectedLens.price).toLocaleString() : "0"}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
-        {/* Lens */}
-        <div className="flex justify-between py-3 border-b border-white/5 text-white">
-          <span>
-            {selectedLens ? selectedLens.name : "Lens"}
-          </span>
-          <span>
-            ₹{selectedLens?.price
-              ? Number(selectedLens.price).toLocaleString()
-              : "0"}
-          </span>
+        {/* Pricing Summary Box */}
+        <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 mb-4">
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">Subtotal</span>
+              <span className="text-slate-900">₹{totalAmount.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-green-600">Paid</span>
+              <span className="text-green-600 font-medium">₹{Number(orderData?.paid_amount || 0).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-amber-600">Remaining</span>
+              <span className="text-amber-600 font-medium">₹{Number(orderData?.remaining_amount || 0).toLocaleString()}</span>
+            </div>
+            <div className="border-t border-slate-300 pt-2 mt-2 flex justify-between">
+              <span className="text-slate-900 font-semibold">Grand Total</span>
+              <span className="text-[#d4af37] font-bold text-lg">₹{totalAmount.toLocaleString()}</span>
+            </div>
+          </div>
         </div>
 
-        {/* Total */}
-        <div className="flex justify-between py-3 border-t border-white/20 font-semibold">
-          <span className="text-white">Total</span>
-          <span className="text-[#d4af37] text-lg">
-            ₹
-            {(
-              (Number(framePrice) || 0) +
-              (Number(selectedLens?.price) || 0)
-            ).toLocaleString()}
-          </span>
+        {/* Footer */}
+        <div className="text-center pt-4 border-t border-slate-200">
+          <p className="text-slate-600 text-sm font-medium">Thank you for your business!</p>
+          <p className="text-slate-400 text-xs mt-1">
+            For support: contact@lensshine.com | +91 98765 43210
+          </p>
         </div>
-
-        {/* Paid */}
-<div className="flex justify-between text-sm mt-1">
-  <span className="text-green-400">Paid</span>
-  <span className="text-green-400">
-    ₹{Number(orderData?.paid_amount || 0).toLocaleString()}
-  </span>
-</div>
-
-{/* Balance */}
-<div className="flex justify-between text-amber-400 text-sm">
-  <span>Balance</span>
-  <span>
-    ₹{Number(orderData?.remaining_amount || 0).toLocaleString()}
-  </span>
-</div>
-
       </div>
     </div>
 
+    {/* Email Input */}
     <input
-  type="email"
-  placeholder="Enter customer email"
-  value={customerEmail}
-  onChange={(e) => setCustomerEmail(e.target.value)}
-  className="w-full mb-4 p-3 bg-[#141414] border border-white/20 text-white"
-/>
+      type="email"
+      placeholder="Enter customer email"
+      value={customerEmail}
+      onChange={(e) => setCustomerEmail(e.target.value)}
+      className="w-full mb-4 p-3 bg-[#141414] border border-white/20 text-white rounded-lg"
+    />
 
-    {/* Buttons */}
+    {/* Action Buttons */}
     <div className="flex gap-3">
       <button
         onClick={handlePrint}
-        className="flex-1 bg-[#d4af37] text-black h-11 flex items-center justify-center gap-2"
+        className="flex-1 bg-[#d4af37] text-black h-11 flex items-center justify-center gap-2 rounded-lg hover:bg-[#f3e5ab] transition-colors"
       >
         <Printer size={16} /> Print Invoice
       </button>
 
       <button
-         onClick={sendInvoice}
-        className="flex-1 border border-white/20 text-white h-11 flex items-center justify-center gap-2"
+        onClick={sendInvoice}
+        className="flex-1 border border-white/20 text-white h-11 flex items-center justify-center gap-2 rounded-lg hover:border-[#d4af37] transition-colors"
       >
         <Mail size={16} /> Email Invoice
       </button>
     </div>
 
-    <button  onClick={sendInvoice}>
-  Send Invoice
-</button>
-
+    {/* New Order Button */}
     <button
       onClick={() => navigate(0)}
-      className="w-full border border-white/20 text-white h-11"
+      className="w-full border border-white/20 text-white h-11 rounded-lg hover:border-[#d4af37] transition-colors"
     >
       Start New Order →
     </button>
@@ -1216,7 +1296,7 @@ const generateInvoiceImage = async () => {
         </AnimatePresence>
 
         {/* Navigation Buttons */}
-        {step <= 3 && (
+        {step <= 2 && (
           <div className="flex justify-between items-center max-w-4xl mx-auto mt-10">
             <button
               data-testid="step-back-btn"
@@ -1230,48 +1310,16 @@ const generateInvoiceImage = async () => {
            <button
   data-testid="step-next-btn"
 onClick={() => {
-  if (step === 3) {
-    try {
-      const finalData = {
-        customer_name: customerName,
-        mobile: mobile,
-        address: address || "",
-        bookingDate: bookingDate,
-
-        frame_price: Number(framePrice) || 0,
-
-        lens_name: selectedLens?.name || "Lens",
-        lens_price: Number(selectedLens?.price) || 0,
-
-        total_amount: totalAmount,
-        paid_amount: payAmount,
-        remaining_amount: totalAmount - payAmount,
-      };
-
-      console.log("FINAL ORDER DATA:", finalData);
-
-      setOrderData(finalData);
-
-      setStep(4);
-    } catch (err) {
-      console.error("Order Error:", err);
-    }
-  } else {
-    nextStep();
-  }
+  nextStep();
 }}
   disabled={
     loading ||
-    (step === 3
-      ? !selectedLens || !customerName || !mobile
-      : !canNext())
+    !canNext()
   }
   className="bg-[#d4af37] text-black hover:bg-[#f3e5ab] rounded-none px-8 h-11 font-medium disabled:opacity-30 flex items-center"
 >
   {loading
     ? "Creating..."
-    : step === 3
-    ? "Confirm Order"
     : "Next"}
 
   {!loading && <ChevronRight className="h-4 w-4 ml-1" />}

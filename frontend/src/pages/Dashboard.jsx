@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { ShoppingBag, IndianRupee, Clock, AlertTriangle, BookDashed } from "lucide-react";
 
@@ -10,8 +10,7 @@ function Dashboard() {
   const [period, setPeriod] = useState("all");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchData = async () => {
+  const fetchData = useCallback(async () => {
       setLoading(true);
       try {
         const [statsRes, ordersRes] = await Promise.all([
@@ -20,15 +19,19 @@ function Dashboard() {
         ]);
         setStats(statsRes.data);
         setOrders(ordersRes.data);
+        console.log("✅ Dashboard data loaded:", statsRes.data);
       } catch (err) {
-        console.error("Failed to fetch dashboard data");
+        console.error("❌ Failed to fetch dashboard data:", err);
       } finally {
         setLoading(false);
       }
-    };
+    }, [period]);
 
+  useEffect(() => {
     fetchData();
-  }, [period]);
+    const intervalId = setInterval(fetchData, 10000);
+    return () => clearInterval(intervalId);
+  }, [fetchData]);
 
   return (
     <div className="pt-20 pb-12 px-4 sm:px-6 min-h-screen">
@@ -118,22 +121,28 @@ function Dashboard() {
                 ) : (
                   orders.map((order) => (
                     <tr
-                      key={order.id}
+                      key={order._id}
                       className="border-t border-white/5 hover:bg-white/5"
                     >
-                      <td className="p-3">#{order.id?.slice(0, 6)}</td>
+                      <td className="p-3">#{String(order._id).slice(0, 6).toUpperCase()}</td>
                       <td className="p-3">{order.customer_name}</td>
                       <td className="p-3">{order.mobile}</td>
-                      <td className="p-3">{order.lens_name}</td>
-                      <td className="p-3">₹{order.total_amount}</td>
+                      <td className="p-3">{order.lens_name || "—"}</td>
+                      <td className="p-3">₹{Number(order.total_amount).toLocaleString()}</td>
                       <td className="p-3 text-green-400">
-                        ₹{order.paid_amount}
+                        ₹{Number(order.paid_amount).toLocaleString()}
                       </td>
                       <td className="p-3">
-                        {order.payment_status}
+                        <span className={`text-xs px-2 py-1 rounded ${
+                          order.payment_status === "paid" ? "bg-green-500/20 text-green-400" :
+                          order.payment_status === "partial" ? "bg-yellow-500/20 text-yellow-400" :
+                          "bg-red-500/20 text-red-400"
+                        }`}>
+                          {order.payment_status}
+                        </span>
                       </td>
                       <td className="p-3 text-white/40">
-                        {order.booking_date}
+                        {order.booking_date ? new Date(order.booking_date).toLocaleDateString() : order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "—"}
                       </td>
                     </tr>
                   ))

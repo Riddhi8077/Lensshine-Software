@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
@@ -25,8 +25,8 @@ function CustomerHistory() {
   const [searched, setSearched] = useState(false);
   const [expandedOrder, setExpandedOrder] = useState(null);
 
-  const handleSearch = async () => {
-    if (mobile.trim().length < 10) {
+  const runSearch = useCallback(async (mobileInput) => {
+    if (mobileInput.trim().length < 10) {
       toast.error("Please enter a valid 10-digit mobile number");
       return;
     }
@@ -35,7 +35,7 @@ function CustomerHistory() {
     setSearched(true);
 
     try {
-      const res = await axios.get(`${API}/customers/${mobile.trim()}/orders`);
+      const res = await axios.get(`${API}/orders/${mobileInput.trim()}`);
       setCustomer(res.data.customer);
       setOrders(res.data.orders || []);
 
@@ -43,13 +43,22 @@ function CustomerHistory() {
         toast.info("No records found for this number");
       }
     } catch (err) {
+      console.error("❌ Search error:", err);
       toast.error("Search failed");
       setCustomer(null);
       setOrders([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const handleSearch = () => runSearch(mobile);
+
+  useEffect(() => {
+    if (!searched || mobile.trim().length < 10) return;
+    const intervalId = setInterval(() => runSearch(mobile), 10000);
+    return () => clearInterval(intervalId);
+  }, [mobile, searched, runSearch]);
 
   const statusStyle = (s) => {
     if (s === "paid") return "text-green-400";
@@ -128,29 +137,29 @@ function CustomerHistory() {
           {orders.length > 0 && (
             <div className="space-y-3">
               {orders.map((order) => {
-                const isExpanded = expandedOrder === order.id;
+                const isExpanded = expandedOrder === order._id;
 
                 return (
-                  <div key={order.id} className="bg-[#141414] border border-white/10">
+                  <div key={order._id} className="bg-[#141414] border border-white/10">
 
                     <button
                       className="w-full p-4 flex justify-between"
                       onClick={() =>
-                        setExpandedOrder(isExpanded ? null : order.id)
+                        setExpandedOrder(isExpanded ? null : order._id)
                       }
                     >
                       <div>
                         <p className="text-white text-sm">
-                          {order.lens_name}
+                          {order.lens_name || "Lens"}
                         </p>
                         <p className="text-white/40 text-xs">
-                          {order.booking_date}
+                          {order.booking_date ? new Date(order.booking_date).toLocaleDateString() : new Date(order.createdAt).toLocaleDateString()}
                         </p>
                       </div>
 
                       <div className="text-right">
                         <p className="text-[#d4af37]">
-                          ₹{order.total_amount}
+                          ₹{Number(order.total_amount).toLocaleString()}
                         </p>
                         <p className={statusStyle(order.payment_status)}>
                           {order.payment_status}
@@ -159,11 +168,11 @@ function CustomerHistory() {
                     </button>
 
                     {isExpanded && (
-                      <div className="p-4 border-t border-white/10 text-sm text-white/70">
-                        Frame: ₹{order.frame_price} <br />
-                        Lens: ₹{order.lens_price} <br />
-                        Paid: ₹{order.paid_amount} <br />
-                        Remaining: ₹{order.remaining_amount}
+                      <div className="p-4 border-t border-white/10 text-sm text-white/70 space-y-1">
+                        <p><strong className="text-white">Frame:</strong> ₹{Number(order.frame_price).toLocaleString()}</p>
+                        <p><strong className="text-white">Lens:</strong> ₹{Number(order.lens_price).toLocaleString()}</p>
+                        <p><strong className="text-white">Paid:</strong> <span className="text-green-400">₹{Number(order.paid_amount).toLocaleString()}</span></p>
+                        <p><strong className="text-white">Remaining:</strong> <span className="text-amber-400">₹{Number(order.remaining_amount).toLocaleString()}</span></p>
                       </div>
                     )}
                   </div>

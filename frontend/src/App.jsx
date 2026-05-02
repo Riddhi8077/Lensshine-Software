@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import Navbar from "./components/Navbar";
 import HomePage from "./pages/HomePage";
 import NewCustomer from "./pages/NewCustomer";
@@ -15,13 +15,38 @@ import BifocalLens from "./pages/BifocalLens";
 import ProgressiveLens from "./pages/ProgressiveLens";
 
 function App() {
+  const [theme, setTheme] = useState(
+    localStorage.getItem("lensshine-theme") || "dark"
+  );
+
   useEffect(() => {
     document.documentElement.style.scrollBehavior = "smooth";
   }, []);
 
+  useEffect(() => {
+    const applyTheme = () => {
+      const savedTheme = localStorage.getItem("lensshine-theme") || "dark";
+      setTheme(savedTheme);
+      document.documentElement.classList.toggle("light-mode", savedTheme === "light");
+    };
+
+    applyTheme();
+    window.addEventListener("lensshine-theme-change", applyTheme);
+
+    return () => {
+      window.removeEventListener("lensshine-theme-change", applyTheme);
+    };
+  }, []);
+
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-[#0a0a0a] text-white">
+      <div
+        className={
+          theme === "light"
+            ? "min-h-screen bg-[#f5f5f3] text-[#111]"
+            : "min-h-screen bg-[#0a0a0a] text-white"
+        }
+      >
 
         <Navbar />
 
@@ -39,7 +64,11 @@ function App() {
           <Route path="/lens/progressive" element={<ProgressiveLens />} />
         </Routes>
 
-        <Toaster theme="dark" richColors position="top-right" />
+        <Toaster
+          theme={theme === "light" ? "light" : "dark"}
+          richColors
+          position="top-right"
+        />
       </div>
     </BrowserRouter>
   );
