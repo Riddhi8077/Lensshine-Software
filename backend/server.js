@@ -1,6 +1,6 @@
 require("dotenv").config();
 const express = require("express");
-const { Resend } = require("resend");
+const nodemailer = require("nodemailer");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
@@ -77,31 +77,33 @@ app.use(
 
 
 // ================= EMAIL =================
-console.log("[EMAIL] Initializing Resend API email service...");
+console.log("[EMAIL] Initializing Nodemailer with Gmail SMTP...");
 
-// Initialize Resend - modern HTTP API email service
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Production-safe Gmail SMTP configuration for Render
+const transporter = nodemailer.createTransport({
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false, // false for port587
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+  family: 4, // Force IPv4 to avoid IPv6 issues on Render
+  // Very aggressive timeouts for Render deployment
+  connectionTimeout: 3000,     // 3s to establish connection
+  socketTimeout: 5000,         // 5s for socket operations
+  greetingTimeout: 2000,       // 2s for SMTP greeting
+  pool: false,                 // Disable pooling to avoid connection issues
+  maxConnections: 1,            // Single connection to prevent hanging
+  // TLS configuration for cloud environments
+  tls: {
+    rejectUnauthorized: false,  // More lenient for cloud environments
+  },
+  debug: false, // Disable debug in production
+  logger: false, // Disable verbose logging in production
+});
 
-// Verify Resend API key on startup
-const verifyResend = async () => {
-  try {
-    console.log("[EMAIL] Verifying Resend API key...");
-    
-    if (!process.env.RESEND_API_KEY) {
-      throw new Error("RESEND_API_KEY environment variable is required");
-    }
-    
-    // Test Resend API with a simple domain verification
-    console.log("[EMAIL] Resend API initialized successfully");
-    console.log("[EMAIL] Using Resend for reliable email delivery on Render");
-    
-  } catch (error) {
-    console.error("[EMAIL] Resend initialization error:", error.message);
-    console.error("[EMAIL] Please set RESEND_API_KEY in environment variables");
-  }
-};
-
-verifyResend();
+console.log("[EMAIL] Gmail SMTP transporter initialized with IPv4-only configuration");
 
 // ================= ROUTES =================
 
@@ -143,14 +145,14 @@ app.post("/send-invoice", async (req, res) => {
   console.log("📧 [START] Send invoice request received");
   
   const connectionTimeout = setTimeout(() => {
-    console.error("⏰ [TIMEOUT] Send invoice request timeout after 15s");
+    console.error("⏰ [TIMEOUT] Send invoice request timeout after 10s");
     if (!res.headersSent) {
       res.status(408).json({ 
         success: false, 
         message: "Request timeout - please try again" 
       });
     }
-  }, 15000); // Reduced to 15s total timeout
+  }, 10000); // Aggressive 10s total timeout
 
   try {
     // Validate request body
@@ -290,82 +292,26 @@ app.post("/send-invoice", async (req, res) => {
       attachments: attachments.length > 0 ? attachments : undefined,
     };
 
-    // Send email using Resend API with proper error handling and detailed logging
-    console.log("[EMAIL] Starting Resend email send process...");
+    // Send email using Nodemailer with proper error handling and timeout protection
+    console.log("[EMAIL] Starting Nodemailer email send process...");
     const emailStartTime = Date.now();
     
     try {
-      console.log("[EMAIL] Calling Resend API...");
+      console.log("[EMAIL] Calling transporter.sendMail()...");
       
-      // Convert attachments to base64 for Resend
-      let emailAttachments = [];
-      if (attachments && attachments.length > 0) {
-        emailAttachments = attachments.map(att => {
-          if (att.content) {
-            // Base64 attachment
-            return {
-              filename: att.filename,
-              content: att.content.toString('base64'),
-              type: att.contentType || 'image/png'
-            };
-          } else if (att.path) {
-            // File path attachment - convert to base64
-            try {
-              const fileContent = fs.readFileSync(att.path);
-              return {
-                filename: att.filename,
-                content: fileContent.toString('base64'),
-                type: 'image/png'
-              };
-            } catch (fileErr) {
-              console.warn("[EMAIL] Could not read attachment file:", att.path);
-              return null;
-            }
-          }
-        }).filter(Boolean);
-      }
-      
-      // Prepare Resend email options
-      const resendOptions = {
-        from: process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev",
-        to: [email],
-        subject: "Your Lensshine Invoice 🧾",
-        html: `
-          <div style="font-family: Arial, Helvetica, sans-serif; padding: 16px; max-width: 620px; margin: 0 auto; background: #070912;">
-            <div style="background: linear-gradient(135deg, #111a3e 0%, #0f224a 100%); padding: 22px 24px; border-radius: 14px;">
-              ${logoHtml}
-              <p style="color: rgba(255,255,255,0.72); margin: 10px 0 0 0; font-size: 14px;">Premium Optical Store</p>
-            </div>
-            <div style="padding: 24px; background: #23262f; border-radius: 14px; margin-top: 12px;">
-              <h2 style="color: #f5f6fb; margin: 0 0 10px 0; font-size: 30px; line-height: 1.15; font-weight: 700;">
-                Thank you for your purchase! 👓
-              </h2>
-              <p style="color: #a8afbd; margin: 0 0 16px 0; font-size: 16px; line-height: 1.35;">Please find your invoice below.</p>
-              <div style="background: #ffffff; border-radius: 10px; padding: 10px;">
-                ${inlineImageHtml}
-              </div>
-            </div>
-            <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); text-align: center;">
-              <p style="color: #9ca3af; font-size: 12px; margin: 0;">For support: contact@lensshine.com | +91 98765 43210</p>
-            </div>
-          </div>
-        `,
-        attachments: emailAttachments.length > 0 ? emailAttachments : undefined
-      };
-      
-      // Send email with Resend API (with timeout)
+      // Send email with aggressive timeout protection
       const result = await Promise.race([
-        resend.emails.send(resendOptions),
+        transporter.sendMail(mailOptions),
         new Promise((_, reject) => {
           setTimeout(() => {
-            console.error("[EMAIL] Resend API TIMEOUT after 10s");
-            reject(new Error('Resend API timeout'));
-          }, 10000);
+            console.error("[EMAIL] sendMail TIMEOUT after 5s - forcing response");
+            reject(new Error('SMTP sendMail timeout'));
+          }, 5000);
         })
       ]);
       
       const emailDuration = Date.now() - emailStartTime;
-      console.log(`[EMAIL] SUCCESS - Email sent via Resend in ${emailDuration}ms:`, result.data?.id);
+      console.log(`[EMAIL] SUCCESS - Email sent via Gmail in ${emailDuration}ms:`, result.messageId);
       
       clearTimeout(connectionTimeout);
       
@@ -375,17 +321,18 @@ app.post("/send-invoice", async (req, res) => {
         res.json({ 
           success: true, 
           message: "Email sent successfully",
-          messageId: result.data?.id 
+          messageId: result.messageId 
         });
       }
       
     } catch (sendErr) {
-      console.error("[EMAIL] Resend API FAILED:", sendErr.message);
-      console.error("[EMAIL] Resend error details:", {
-        name: sendErr.name,
-        message: sendErr.message,
-        statusCode: sendErr.statusCode,
-        response: sendErr.response?.data
+      console.error("[EMAIL] sendMail FAILED:", sendErr.message);
+      console.error("[EMAIL] sendMail error details:", {
+        code: sendErr.code,
+        errno: sendErr.errno,
+        syscall: sendErr.syscall,
+        address: sendErr.address,
+        port: sendErr.port
       });
       throw sendErr; // Re-throw to be caught by outer catch
     }
@@ -404,28 +351,25 @@ app.post("/send-invoice", async (req, res) => {
 
     // Always send a proper JSON response, never let it crash
     if (!res.headersSent) {
-      // User-friendly error messages for Resend API
+      // User-friendly error messages for Nodemailer Gmail SMTP
       let userMessage = "Failed to send email. Please try again.";
       let statusCode = 500;
       
-      if (err.name === 'ValidationError' || err.statusCode === 400) {
-        userMessage = "Invalid email configuration. Please contact support.";
-        statusCode = 400;
-      } else if (err.statusCode === 401) {
-        userMessage = "Email service authentication error. Please contact support.";
+      if (err.code === 'EAUTH') {
+        userMessage = "Email authentication failed. Check Gmail App Password.";
         statusCode = 401;
-      } else if (err.statusCode === 403) {
-        userMessage = "Email service access denied. Please contact support.";
-        statusCode = 403;
-      } else if (err.statusCode === 429) {
-        userMessage = "Too many email requests. Please try again in a moment.";
-        statusCode = 429;
-      } else if (err.statusCode >= 500 || err.message.includes('timeout')) {
-        userMessage = "Email service temporarily unavailable. Please try again later.";
+      } else if (err.code === 'ETIMEDOUT' || err.code === 'ESOCKET') {
+        userMessage = "Network timeout. Please try again in a moment.";
+        statusCode = 504;
+      } else if (err.message.includes('ENETUNREACH')) {
+        userMessage = "Server network issue. Please try again later.";
         statusCode = 503;
-      } else if (err.message.includes('RESEND_API_KEY')) {
-        userMessage = "Email service not configured. Please contact support.";
+      } else if (err.message.includes('ECONNREFUSED')) {
+        userMessage = "Email service unavailable. Please try again later.";
         statusCode = 503;
+      } else if (err.message.includes('timeout')) {
+        userMessage = "Email sending timeout. Please try again.";
+        statusCode = 504;
       }
 
       res.status(statusCode).json({ 
