@@ -144,19 +144,22 @@ app.post("/send-invoice", async (req, res) => {
           },
         ];
 
-    const logoPath = path.join(__dirname, "../frontend/public/logo.png");
-    const hasLogo = fs.existsSync(logoPath);
-    if (hasLogo) {
-      attachments.push({
-        filename: "logo.png",
-        path: logoPath,
-        cid: "lensshine-logo",
-      });
-    }
+        const logoPath = path.join(__dirname, "../frontend/public/logo.png");
 
-    const logoHtml = hasLogo
-      ? `<img src="cid:lensshine-logo" alt="Lensshine Logo" style="height: 42px; width: auto; display:block;" />`
-      : `<h1 style="color:#d4af37; margin:0; font-size:40px; line-height:1.05; font-weight:700;">Lensshine</h1>`;
+        const hasLogo = fs.existsSync(logoPath);
+        
+        if (hasLogo) {
+          const logoBuffer = fs.readFileSync(logoPath);
+        
+          attachments.push({
+            filename: "logo.png",
+            content: logoBuffer,
+          });
+        }
+
+        const logoHtml = hasLogo
+        ? `<img src="https://lensshinesoftware.netlify.app/logo.png" alt="Lensshine Logo" style="height: 42px; width: auto; display:block;" />`
+        : `<h1 style="color:#d4af37; margin:0; font-size:40px; line-height:1.05; font-weight:700;">Lensshine</h1>`;
 
       await resend.emails.send({
         from: process.env.EMAIL_FROM,
@@ -197,7 +200,6 @@ app.post("/send-invoice", async (req, res) => {
         attachments: attachments.map((file) => ({
           filename: file.filename,
           content: file.content,
-          path: file.path,
         })),
       });
 
