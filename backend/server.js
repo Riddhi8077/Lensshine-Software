@@ -79,24 +79,56 @@ app.use(
 // ================= EMAIL =================
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 587,  // ✅ Render-safe port (was 465)
-  secure: false,  // ✅ false for port 587
+  port: 587,  //  Render-safe port (was 465)
+  secure: false,  //  false for port 587
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-  family: 4,  // ✅ Force IPv4
-  connectionTimeout: 10000,
-  socketTimeout: 15000,
+  family: 4,  // Force IPv4
+  // Aggressive timeouts for Render deployment
+  connectionTimeout: 5000,     // 5s to establish connection
+  socketTimeout: 8000,         // 8s for socket operations
+  greetingTimeout: 3000,       // 3s for SMTP greeting
   pool: true,
-  maxConnections: 5,
+  maxConnections: 3,           // Reduced to prevent connection issues
+  maxMessages: 5,              // Close connection after 5 messages
+  rateDelta: 1000,             // Rate limiting
+  rateLimit: 5,                // Max 5 messages per second
+  // Disable unnecessary features for cloud deployment
+  tls: {
+    rejectUnauthorized: false,  // More lenient for cloud environments
+  },
+  debug: process.env.NODE_ENV === 'development', // Enable debug in dev
+  logger: process.env.NODE_ENV === 'development', // Enable logging in dev
 });
 
-// Test on startup (safe)
-transporter.verify((error, success) => {
-  if (error) console.error("⚠️ SMTP:", error.message);
-  else console.log("✅ SMTP Ready");
-});
+// Test on startup with timeout
+const verifyTransporter = async () => {
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('SMTP verification timeout'));
+      }, 8000);
+      
+      transporter.verify((error, success) => {
+        clearTimeout(timeout);
+        if (error) {
+          console.error("⚠️ SMTP Verification failed:", error.message);
+          reject(error);
+        } else {
+          console.log("SMTP Ready");
+          resolve(success);
+        }
+      });
+    });
+  } catch (error) {
+    console.error("❌ SMTP initialization error:", error.message);
+    // Don't exit - allow retries in the send-invoice route
+  }
+};
+
+verifyTransporter();
 
 // ================= ROUTES =================
 
@@ -134,15 +166,18 @@ app.get("/customers/search", async (req, res) => {
 
 // ================= SEND INVOICE (PRODUCTION-SAFE) =================
 app.post("/send-invoice", async (req, res) => {
+  const startTime = Date.now();
+  console.log("📧 [START] Send invoice request received");
+  
   const connectionTimeout = setTimeout(() => {
-    console.error("⏰ SEND-INVOICE TIMEOUT");
+    console.error("⏰ [TIMEOUT] Send invoice request timeout after 15s");
     if (!res.headersSent) {
       res.status(408).json({ 
         success: false, 
         message: "Request timeout - please try again" 
       });
     }
-  }, 30000); // 30s total timeout
+  }, 15000); // Reduced to 15s total timeout
 
   try {
     // Validate request body
@@ -205,7 +240,7 @@ app.post("/send-invoice", async (req, res) => {
         invoiceBuffer = Buffer.from(base64Data, "base64");
       }
     } catch (imgErr) {
-      console.error("❌ Image processing error:", imgErr.message);
+      console.error(" Image processing error:", imgErr.message);
       if (!res.headersSent) {
         return res.status(400).json({
           success: false,
@@ -282,13 +317,25 @@ app.post("/send-invoice", async (req, res) => {
       attachments: attachments.length > 0 ? attachments : undefined,
     };
 
-    // Send email with proper error handling
-    const result = await transporter.sendMail(mailOptions);
+    // Send email with proper error handling and detailed logging
+    console.log("📧 [SEND] Starting email send process...");
+    const emailStartTime = Date.now();
+    
+    const result = await Promise.race([
+      transporter.sendMail(mailOptions),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('SMTP sendMail timeout')), 10000)
+      )
+    ]);
+    
+    const emailDuration = Date.now() - emailStartTime;
+    console.log(`📧 [SUCCESS] Email sent in ${emailDuration}ms:`, result.messageId);
     
     clearTimeout(connectionTimeout);
-    console.log("✅ Email sent successfully:", result.messageId);
     
     if (!res.headersSent) {
+      const totalDuration = Date.now() - startTime;
+      console.log(`📧 [COMPLETE] Total request time: ${totalDuration}ms`);
       res.json({ 
         success: true, 
         message: "Email sent successfully",
@@ -299,7 +346,8 @@ app.post("/send-invoice", async (req, res) => {
   } catch (err) {
     clearTimeout(connectionTimeout);
     
-    console.error("❌ EMAIL ERROR DETAILS:", {
+    const errorDuration = Date.now() - startTime;
+    console.error(`❌ [ERROR] Email failed after ${errorDuration}ms:`, {
       message: err.message,
       code: err.code,
       command: err.command,
@@ -342,7 +390,7 @@ app.post("/send-invoice", async (req, res) => {
 // ================= HEALTH CHECK =================
 
 app.get("/health", (req, res) => {
-  res.json({ status: "✅ Backend is running", timestamp: new Date() });
+  res.json({ status: "Backend is running", timestamp: new Date() });
 });
 
 // ================= GLOBAL ERROR HANDLER =================
@@ -357,7 +405,7 @@ app.use((err, req, res, next) => {
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  console.error("❌ UNHANDLED ERROR:", err);
+  console.error("UNHANDLED ERROR:", err);
 
   if (!res.headersSent) {
     res.status(500).json({
@@ -377,8 +425,8 @@ const startServer = async () => {
     await connectDB();
 
     app.listen(PORT, () => {
-      console.log(`\n✅ Server running on http://localhost:${PORT}`);
-      console.log("📊 API Ready:");
+      console.log(`\n Server running on http://localhost:${PORT}`);
+      console.log(" API Ready:");
       console.log("   POST   /orders              (Create order)");
       console.log("   GET    /orders              (Get all orders)");
       console.log("   GET    /orders/:mobile      (Get customer orders)");
@@ -388,7 +436,7 @@ const startServer = async () => {
       console.log("   GET    /health              (Health check)\n");
     });
   } catch (err) {
-    console.error("❌ Failed to start server:", err.message);
+    console.error(" Failed to start server:", err.message);
     process.exit(1);
   }
 };
