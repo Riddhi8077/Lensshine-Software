@@ -60,11 +60,16 @@ app.use(
 // ================= EMAIL =================
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
+
   auth: {
-    user: "Lensshinemathura@gmail.com",
-    pass: "zqhx nozf hkcg duhy",
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
   },
+
+  family: 4,
 });
 
 // ================= ROUTES =================
@@ -165,7 +170,7 @@ app.post("/send-invoice", async (req, res) => {
       : `<h1 style="color:#d4af37; margin:0; font-size:40px; line-height:1.05; font-weight:700;">Lensshine</h1>`;
 
     await transporter.sendMail({
-      from: "Lensshinemathura@gmail.com",
+      from: "lensshinemathura@gmail.com",
       to: email,
       subject: "Your Lensshine Invoice 🧾",
 
