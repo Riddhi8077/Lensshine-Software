@@ -24,6 +24,24 @@ const allowedOrigins = [
   "https://lensshinesoftware.netlify.app"
 ].filter(Boolean);
 
+// CORS middleware that always sends headers, even on errors
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  
+  next();
+});
 
 app.use(
   cors({
@@ -114,17 +132,29 @@ app.get("/customers/search", async (req, res) => {
 
 // ================= SEND INVOICE =================
 
-// ================= SEND INVOICE (RELIABILITY-ENHANCED) =================
+// ================= SEND INVOICE (PRODUCTION-SAFE) =================
 app.post("/send-invoice", async (req, res) => {
   const connectionTimeout = setTimeout(() => {
     console.error("⏰ SEND-INVOICE TIMEOUT");
-    res.status(408).json({ 
-      success: false, 
-      message: "Request timeout - please try again" 
-    });
+    if (!res.headersSent) {
+      res.status(408).json({ 
+        success: false, 
+        message: "Request timeout - please try again" 
+      });
+    }
   }, 30000); // 30s total timeout
 
   try {
+    // Validate request body
+    if (!req.body) {
+      if (!res.headersSent) {
+        return res.status(400).json({
+          success: false,
+          message: "Request body is required"
+        });
+      }
+    }
+
     const { email, invoiceDataUrl, imageUrl } = req.body;
     const invoiceImage = invoiceDataUrl || imageUrl;
 
@@ -133,57 +163,100 @@ app.post("/send-invoice", async (req, res) => {
       hasInvoiceData: Boolean(invoiceImage),
     });
 
+    // Validate required fields
     if (!email || !invoiceImage) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing email or image URL"
-      });
+      if (!res.headersSent) {
+        return res.status(400).json({
+          success: false,
+          message: "Missing email or image URL"
+        });
+      }
     }
 
-    const dataUrlMatch = String(invoiceImage).match(/^data:(image\/\w+);base64,(.+)$/);
-    const isBase64Image = Boolean(dataUrlMatch);
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      if (!res.headersSent) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid email format"
+        });
+      }
+    }
+
+    // Process image data safely
     let invoiceBuffer = null;
     let mimeType = "image/png";
+    let isBase64Image = false;
 
-    if (isBase64Image) {
-      mimeType = dataUrlMatch[1];
-      const base64Data = dataUrlMatch[2];
-      invoiceBuffer = Buffer.from(base64Data, "base64");
+    try {
+      const dataUrlMatch = String(invoiceImage).match(/^data:(image\/\w+);base64,(.+)$/);
+      isBase64Image = Boolean(dataUrlMatch && dataUrlMatch[2]);
+
+      if (isBase64Image) {
+        mimeType = dataUrlMatch[1];
+        const base64Data = dataUrlMatch[2];
+        
+        // Validate base64 data
+        if (base64Data.length > 5000000) { // 5MB limit
+          throw new Error("Image too large");
+        }
+        
+        invoiceBuffer = Buffer.from(base64Data, "base64");
+      }
+    } catch (imgErr) {
+      console.error("❌ Image processing error:", imgErr.message);
+      if (!res.headersSent) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid image data"
+        });
+      }
     }
 
     const inlineImageHtml = isBase64Image
       ? `<img src="cid:lensshine-invoice-preview" alt="Invoice" style="max-width: 100%; border-radius: 8px; border: 1px solid #e5e7eb; display: block;" />`
       : `<img src="${invoiceImage}" alt="Invoice" style="max-width: 100%; border-radius: 8px; border: 1px solid #e5e7eb; display: block;" />`;
 
-    const attachments = isBase64Image
-      ? [{
-          filename: "Lensshine_Invoice.png",
-          content: invoiceBuffer,
-          contentType: mimeType,
-          cid: "lensshine-invoice-preview",
-        }]
-      : [{
-          filename: "Lensshine_Invoice.png",
-          path: invoiceImage,
-        }];
-
-    const logoPath = path.join(__dirname, "../frontend/public/logo.png");
-    const hasLogo = fs.existsSync(logoPath);
-    if (hasLogo) {
+    // Build attachments safely
+    const attachments = [];
+    
+    if (isBase64Image && invoiceBuffer) {
       attachments.push({
-        filename: "logo.png",
-        path: logoPath,
-        cid: "lensshine-logo",
+        filename: "Lensshine_Invoice.png",
+        content: invoiceBuffer,
+        contentType: mimeType,
+        cid: "lensshine-invoice-preview",
+      });
+    } else if (!isBase64Image) {
+      attachments.push({
+        filename: "Lensshine_Invoice.png",
+        path: invoiceImage,
       });
     }
 
-    const logoHtml = hasLogo
+    // Add logo if it exists (safe file access)
+    try {
+      const logoPath = path.join(__dirname, "../frontend/public/logo.png");
+      const hasLogo = fs.existsSync(logoPath);
+      if (hasLogo) {
+        attachments.push({
+          filename: "logo.png",
+          path: logoPath,
+          cid: "lensshine-logo",
+        });
+      }
+    } catch (logoErr) {
+      console.warn("⚠️ Logo file not accessible:", logoErr.message);
+    }
+
+    const logoHtml = attachments.some(a => a.cid === "lensshine-logo")
       ? `<img src="cid:lensshine-logo" alt="Lensshine Logo" style="height: 42px; width: auto; display:block;" />`
       : `<h1 style="color:#d4af37; margin:0; font-size:40px; line-height:1.05; font-weight:700;">Lensshine</h1>`;
 
-    // SEND with timeout & retry logic
+    // Prepare email options with validation
     const mailOptions = {
-      from: "lensshinemathura@gmail.com",
+      from: process.env.EMAIL_USER || "lensshinemathura@gmail.com",
       to: email,
       subject: "Your Lensshine Invoice 🧾",
       html: `
@@ -206,18 +279,22 @@ app.post("/send-invoice", async (req, res) => {
           </div>
         </div>
       `,
-      attachments,
+      attachments: attachments.length > 0 ? attachments : undefined,
     };
 
+    // Send email with proper error handling
     const result = await transporter.sendMail(mailOptions);
     
     clearTimeout(connectionTimeout);
     console.log("✅ Email sent successfully:", result.messageId);
-    res.json({ 
-      success: true, 
-      message: "Email sent successfully",
-      messageId: result.messageId 
-    });
+    
+    if (!res.headersSent) {
+      res.json({ 
+        success: true, 
+        message: "Email sent successfully",
+        messageId: result.messageId 
+      });
+    }
 
   } catch (err) {
     clearTimeout(connectionTimeout);
@@ -230,21 +307,35 @@ app.post("/send-invoice", async (req, res) => {
       stack: err.stack?.split('\n')[0]
     });
 
-    // User-friendly error messages
-    let userMessage = "Failed to send email. Please try again.";
-    if (err.code === 'EAUTH') {
-      userMessage = "Invalid email credentials. Check app password.";
-    } else if (err.code === 'ETIMEDOUT' || err.code === 'ESOCKET') {
-      userMessage = "Network timeout. Please try again in a moment.";
-    } else if (err.message.includes('ENETUNREACH')) {
-      userMessage = "Server network issue. Please try again later.";
-    }
+    // Always send a proper JSON response, never let it crash
+    if (!res.headersSent) {
+      // User-friendly error messages
+      let userMessage = "Failed to send email. Please try again.";
+      let statusCode = 500;
+      
+      if (err.code === 'EAUTH') {
+        userMessage = "Email service configuration error. Please contact support.";
+        statusCode = 503;
+      } else if (err.code === 'ETIMEDOUT' || err.code === 'ESOCKET') {
+        userMessage = "Network timeout. Please try again in a moment.";
+        statusCode = 504;
+      } else if (err.message.includes('ENETUNREACH')) {
+        userMessage = "Server network issue. Please try again later.";
+        statusCode = 503;
+      } else if (err.message.includes('ECONNREFUSED')) {
+        userMessage = "Email service unavailable. Please try again later.";
+        statusCode = 503;
+      }
 
-    res.status(500).json({ 
-      success: false, 
-      message: userMessage,
-      debug: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
+      res.status(statusCode).json({ 
+        success: false, 
+        message: userMessage,
+        debug: process.env.NODE_ENV === 'development' ? {
+          error: err.message,
+          code: err.code
+        } : undefined
+      });
+    }
   }
 });
 
@@ -252,6 +343,29 @@ app.post("/send-invoice", async (req, res) => {
 
 app.get("/health", (req, res) => {
   res.json({ status: "✅ Backend is running", timestamp: new Date() });
+});
+
+// ================= GLOBAL ERROR HANDLER =================
+// This ensures CORS headers are always sent, even for unhandled errors
+app.use((err, req, res, next) => {
+  // Ensure CORS headers are sent even for errors
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  console.error("❌ UNHANDLED ERROR:", err);
+
+  if (!res.headersSent) {
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      debug: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
 });
 
 // ================= START SERVER =================
