@@ -60,37 +60,28 @@ app.use(
 // ================= EMAIL =================
 
 // ================= EMAIL (PRODUCTION-OPTIMIZED) =================
-const transporter = nodemailer.createTransporter({
-  // Use port 587 (TLS) - WORKS ON RENDER FREE TIER
+
+// ================= EMAIL =================
+
+const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 587,
-  secure: false, // true for 465, false for other ports
+  port: 587,  //  Render-safe port (was 465)
+  secure: false,  //  false for port 587
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-  // CRITICAL: Force IPv4 (Render IPv6 SMTP issues)
-  family: 4,
-  // TIMEOUT & CONNECTION POOLING
-  connectionTimeout: 10000, // 10s
-  greetingTimeout: 5000,
-  socketTimeout: 15000, // 15s
-  // RENDER-SPECIFIC: Disable IPv6 + keep-alive
+  family: 4,  //  Force IPv4
+  connectionTimeout: 10000,
+  socketTimeout: 15000,
   pool: true,
   maxConnections: 5,
-  maxMessages: 100,
-  // Debug for production troubleshooting
-  logger: process.env.NODE_ENV === 'development' ? true : false,
-  debug: process.env.NODE_ENV === 'development' ? true : false,
 });
 
-// Test transporter on startup
+// Test on startup (safe)
 transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ SMTP Connection failed:", error.message);
-  } else {
-    console.log("✅ SMTP Connected successfully");
-  }
+  if (error) console.error("⚠️ SMTP:", error.message);
+  else console.log("✅ SMTP Ready");
 });
 
 // ================= ROUTES =================
