@@ -23,24 +23,24 @@ const allowedOrigins = [
   "http://127.0.0.1:5174",
 ].filter(Boolean);
 
+const cors = require("cors");
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "https://lensshinesoftware.netlify.app"
+];
+
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow requests without origin (Postman, mobile apps, server-to-server)
-      if (!origin) return callback(null, true);
+    origin: function (origin, callback) {
 
-      const isLocalhost =
-        /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+      // Allow requests with no origin
+      if (!origin) {
+        return callback(null, true);
+      }
 
-      const productionOrigins = [
-        "https://lensshinesoftware.netlify.app",
-      ];
-
-      if (
-        isLocalhost ||
-        productionOrigins.includes(origin) ||
-        allowedOrigins.includes(origin)
-      ) {
+      if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
@@ -58,8 +58,8 @@ app.use(
 
     allowedHeaders: [
       "Content-Type",
-      "Authorization",
-    ],
+      "Authorization"
+    ]
   })
 );
 
