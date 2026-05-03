@@ -60,16 +60,11 @@ app.use(
 // ================= EMAIL =================
 
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
-
+  service: "gmail",
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    user: "lensshinemathura@gmail.com",
+    pass: "zqhx nozf hkcg duhy",
   },
-
-  family: 4,
 });
 
 // ================= ROUTES =================
