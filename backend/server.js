@@ -26,16 +26,40 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
+      // Allow requests without origin (Postman, mobile apps, server-to-server)
       if (!origin) return callback(null, true);
-      const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
-      if (allowedOrigins.includes(origin) || isLocalhost) {
+
+      const isLocalhost =
+        /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+
+      const productionOrigins = [
+        "https://lensshinesoftware.netlify.app",
+      ];
+
+      if (
+        isLocalhost ||
+        productionOrigins.includes(origin) ||
+        allowedOrigins.includes(origin)
+      ) {
         return callback(null, true);
       }
-      return callback(new Error(`CORS blocked for origin: ${origin}`));
+
+      console.log("❌ CORS blocked for origin:", origin);
+
+      return callback(
+        new Error(`CORS blocked for origin: ${origin}`),
+        false
+      );
     },
+
     credentials: true,
+
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
   })
 );
 
