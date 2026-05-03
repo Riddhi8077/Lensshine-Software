@@ -59,29 +59,17 @@ app.use(
 
 // ================= EMAIL =================
 
-// ================= EMAIL (PRODUCTION-OPTIMIZED) =================
-
-// ================= EMAIL =================
-
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 587,  //  Render-safe port (was 465)
-  secure: false,  //  false for port 587
+  port: 465,
+  secure: true,
+
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-  family: 4,  //  Force IPv4
-  connectionTimeout: 10000,
-  socketTimeout: 15000,
-  pool: true,
-  maxConnections: 5,
-});
 
-// Test on startup (safe)
-transporter.verify((error, success) => {
-  if (error) console.error("⚠️ SMTP:", error.message);
-  else console.log("✅ SMTP Ready");
+  family: 4,
 });
 
 // ================= ROUTES =================
@@ -118,26 +106,18 @@ app.get("/customers/search", async (req, res) => {
 
 // ================= SEND INVOICE =================
 
-// ================= SEND INVOICE (RELIABILITY-ENHANCED) =================
 app.post("/send-invoice", async (req, res) => {
-  const connectionTimeout = setTimeout(() => {
-    console.error("⏰ SEND-INVOICE TIMEOUT");
-    res.status(408).json({ 
-      success: false, 
-      message: "Request timeout - please try again" 
-    });
-  }, 30000); // 30s total timeout
-
   try {
     const { email, invoiceDataUrl, imageUrl } = req.body;
     const invoiceImage = invoiceDataUrl || imageUrl;
 
     console.log("📧 Invoice request:", {
-      email: email?.substring(0, 3) + "***@" + email?.split('@')[1],
+      email,
       hasInvoiceData: Boolean(invoiceImage),
     });
 
     if (!email || !invoiceImage) {
+      console.error("❌ Missing email or imageUrl");
       return res.status(400).json({
         success: false,
         message: "Missing email or image URL"
@@ -160,16 +140,20 @@ app.post("/send-invoice", async (req, res) => {
       : `<img src="${invoiceImage}" alt="Invoice" style="max-width: 100%; border-radius: 8px; border: 1px solid #e5e7eb; display: block;" />`;
 
     const attachments = isBase64Image
-      ? [{
-          filename: "Lensshine_Invoice.png",
-          content: invoiceBuffer,
-          contentType: mimeType,
-          cid: "lensshine-invoice-preview",
-        }]
-      : [{
-          filename: "Lensshine_Invoice.png",
-          path: invoiceImage,
-        }];
+      ? [
+          {
+            filename: "Lensshine_Invoice.png",
+            content: invoiceBuffer,
+            contentType: mimeType,
+            cid: "lensshine-invoice-preview",
+          },
+        ]
+      : [
+          {
+            filename: "Lensshine_Invoice.png",
+            path: invoiceImage,
+          },
+        ];
 
     const logoPath = path.join(__dirname, "../frontend/public/logo.png");
     const hasLogo = fs.existsSync(logoPath);
@@ -185,11 +169,11 @@ app.post("/send-invoice", async (req, res) => {
       ? `<img src="cid:lensshine-logo" alt="Lensshine Logo" style="height: 42px; width: auto; display:block;" />`
       : `<h1 style="color:#d4af37; margin:0; font-size:40px; line-height:1.05; font-weight:700;">Lensshine</h1>`;
 
-    // SEND with timeout & retry logic
-    const mailOptions = {
+    await transporter.sendMail({
       from: "lensshinemathura@gmail.com",
       to: email,
       subject: "Your Lensshine Invoice 🧾",
+
       html: `
         <div style="font-family: Arial, Helvetica, sans-serif; padding: 16px; max-width: 620px; margin: 0 auto; background: #070912;">
           <div style="background: linear-gradient(135deg, #111a3e 0%, #0f224a 100%); padding: 22px 24px; border-radius: 14px;">
@@ -210,45 +194,15 @@ app.post("/send-invoice", async (req, res) => {
           </div>
         </div>
       `,
+
       attachments,
-    };
-
-    const result = await transporter.sendMail(mailOptions);
-    
-    clearTimeout(connectionTimeout);
-    console.log("✅ Email sent successfully:", result.messageId);
-    res.json({ 
-      success: true, 
-      message: "Email sent successfully",
-      messageId: result.messageId 
     });
 
+    console.log("✅ Email sent successfully to:", email);
+    res.json({ success: true, message: "Email sent successfully" });
   } catch (err) {
-    clearTimeout(connectionTimeout);
-    
-    console.error("❌ EMAIL ERROR DETAILS:", {
-      message: err.message,
-      code: err.code,
-      command: err.command,
-      responseCode: err.responseCode,
-      stack: err.stack?.split('\n')[0]
-    });
-
-    // User-friendly error messages
-    let userMessage = "Failed to send email. Please try again.";
-    if (err.code === 'EAUTH') {
-      userMessage = "Invalid email credentials. Check app password.";
-    } else if (err.code === 'ETIMEDOUT' || err.code === 'ESOCKET') {
-      userMessage = "Network timeout. Please try again in a moment.";
-    } else if (err.message.includes('ENETUNREACH')) {
-      userMessage = "Server network issue. Please try again later.";
-    }
-
-    res.status(500).json({ 
-      success: false, 
-      message: userMessage,
-      debug: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
+    console.error("❌ EMAIL ERROR:", err);
+    res.status(500).json({ success: false, message: "Error sending email: " + err.message });
   }
 });
 
