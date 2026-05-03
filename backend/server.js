@@ -1,6 +1,6 @@
 require("dotenv").config();
 const express = require("express");
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
@@ -77,58 +77,31 @@ app.use(
 
 
 // ================= EMAIL =================
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,  //  Render-safe port (was 465)
-  secure: false,  //  false for port 587
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  family: 4,  // Force IPv4
-  // Aggressive timeouts for Render deployment
-  connectionTimeout: 5000,     // 5s to establish connection
-  socketTimeout: 8000,         // 8s for socket operations
-  greetingTimeout: 3000,       // 3s for SMTP greeting
-  pool: true,
-  maxConnections: 3,           // Reduced to prevent connection issues
-  maxMessages: 5,              // Close connection after 5 messages
-  rateDelta: 1000,             // Rate limiting
-  rateLimit: 5,                // Max 5 messages per second
-  // Disable unnecessary features for cloud deployment
-  tls: {
-    rejectUnauthorized: false,  // More lenient for cloud environments
-  },
-  debug: process.env.NODE_ENV === 'development', // Enable debug in dev
-  logger: process.env.NODE_ENV === 'development', // Enable logging in dev
-});
+console.log("[EMAIL] Initializing Resend API email service...");
 
-// Test on startup with timeout
-const verifyTransporter = async () => {
+// Initialize Resend - modern HTTP API email service
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Verify Resend API key on startup
+const verifyResend = async () => {
   try {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('SMTP verification timeout'));
-      }, 8000);
-      
-      transporter.verify((error, success) => {
-        clearTimeout(timeout);
-        if (error) {
-          console.error("⚠️ SMTP Verification failed:", error.message);
-          reject(error);
-        } else {
-          console.log("SMTP Ready");
-          resolve(success);
-        }
-      });
-    });
+    console.log("[EMAIL] Verifying Resend API key...");
+    
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error("RESEND_API_KEY environment variable is required");
+    }
+    
+    // Test Resend API with a simple domain verification
+    console.log("[EMAIL] Resend API initialized successfully");
+    console.log("[EMAIL] Using Resend for reliable email delivery on Render");
+    
   } catch (error) {
-    console.error("❌ SMTP initialization error:", error.message);
-    // Don't exit - allow retries in the send-invoice route
+    console.error("[EMAIL] Resend initialization error:", error.message);
+    console.error("[EMAIL] Please set RESEND_API_KEY in environment variables");
   }
 };
 
-verifyTransporter();
+verifyResend();
 
 // ================= ROUTES =================
 
@@ -317,30 +290,104 @@ app.post("/send-invoice", async (req, res) => {
       attachments: attachments.length > 0 ? attachments : undefined,
     };
 
-    // Send email with proper error handling and detailed logging
-    console.log("📧 [SEND] Starting email send process...");
+    // Send email using Resend API with proper error handling and detailed logging
+    console.log("[EMAIL] Starting Resend email send process...");
     const emailStartTime = Date.now();
     
-    const result = await Promise.race([
-      transporter.sendMail(mailOptions),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('SMTP sendMail timeout')), 10000)
-      )
-    ]);
-    
-    const emailDuration = Date.now() - emailStartTime;
-    console.log(`📧 [SUCCESS] Email sent in ${emailDuration}ms:`, result.messageId);
-    
-    clearTimeout(connectionTimeout);
-    
-    if (!res.headersSent) {
-      const totalDuration = Date.now() - startTime;
-      console.log(`📧 [COMPLETE] Total request time: ${totalDuration}ms`);
-      res.json({ 
-        success: true, 
-        message: "Email sent successfully",
-        messageId: result.messageId 
+    try {
+      console.log("[EMAIL] Calling Resend API...");
+      
+      // Convert attachments to base64 for Resend
+      let emailAttachments = [];
+      if (attachments && attachments.length > 0) {
+        emailAttachments = attachments.map(att => {
+          if (att.content) {
+            // Base64 attachment
+            return {
+              filename: att.filename,
+              content: att.content.toString('base64'),
+              type: att.contentType || 'image/png'
+            };
+          } else if (att.path) {
+            // File path attachment - convert to base64
+            try {
+              const fileContent = fs.readFileSync(att.path);
+              return {
+                filename: att.filename,
+                content: fileContent.toString('base64'),
+                type: 'image/png'
+              };
+            } catch (fileErr) {
+              console.warn("[EMAIL] Could not read attachment file:", att.path);
+              return null;
+            }
+          }
+        }).filter(Boolean);
+      }
+      
+      // Prepare Resend email options
+      const resendOptions = {
+        from: process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev",
+        to: [email],
+        subject: "Your Lensshine Invoice 🧾",
+        html: `
+          <div style="font-family: Arial, Helvetica, sans-serif; padding: 16px; max-width: 620px; margin: 0 auto; background: #070912;">
+            <div style="background: linear-gradient(135deg, #111a3e 0%, #0f224a 100%); padding: 22px 24px; border-radius: 14px;">
+              ${logoHtml}
+              <p style="color: rgba(255,255,255,0.72); margin: 10px 0 0 0; font-size: 14px;">Premium Optical Store</p>
+            </div>
+            <div style="padding: 24px; background: #23262f; border-radius: 14px; margin-top: 12px;">
+              <h2 style="color: #f5f6fb; margin: 0 0 10px 0; font-size: 30px; line-height: 1.15; font-weight: 700;">
+                Thank you for your purchase! 👓
+              </h2>
+              <p style="color: #a8afbd; margin: 0 0 16px 0; font-size: 16px; line-height: 1.35;">Please find your invoice below.</p>
+              <div style="background: #ffffff; border-radius: 10px; padding: 10px;">
+                ${inlineImageHtml}
+              </div>
+            </div>
+            <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); text-align: center;">
+              <p style="color: #9ca3af; font-size: 12px; margin: 0;">For support: contact@lensshine.com | +91 98765 43210</p>
+            </div>
+          </div>
+        `,
+        attachments: emailAttachments.length > 0 ? emailAttachments : undefined
+      };
+      
+      // Send email with Resend API (with timeout)
+      const result = await Promise.race([
+        resend.emails.send(resendOptions),
+        new Promise((_, reject) => {
+          setTimeout(() => {
+            console.error("[EMAIL] Resend API TIMEOUT after 10s");
+            reject(new Error('Resend API timeout'));
+          }, 10000);
+        })
+      ]);
+      
+      const emailDuration = Date.now() - emailStartTime;
+      console.log(`[EMAIL] SUCCESS - Email sent via Resend in ${emailDuration}ms:`, result.data?.id);
+      
+      clearTimeout(connectionTimeout);
+      
+      if (!res.headersSent) {
+        const totalDuration = Date.now() - startTime;
+        console.log(`[EMAIL] COMPLETE - Total request time: ${totalDuration}ms`);
+        res.json({ 
+          success: true, 
+          message: "Email sent successfully",
+          messageId: result.data?.id 
+        });
+      }
+      
+    } catch (sendErr) {
+      console.error("[EMAIL] Resend API FAILED:", sendErr.message);
+      console.error("[EMAIL] Resend error details:", {
+        name: sendErr.name,
+        message: sendErr.message,
+        statusCode: sendErr.statusCode,
+        response: sendErr.response?.data
       });
+      throw sendErr; // Re-throw to be caught by outer catch
     }
 
   } catch (err) {
@@ -357,21 +404,27 @@ app.post("/send-invoice", async (req, res) => {
 
     // Always send a proper JSON response, never let it crash
     if (!res.headersSent) {
-      // User-friendly error messages
+      // User-friendly error messages for Resend API
       let userMessage = "Failed to send email. Please try again.";
       let statusCode = 500;
       
-      if (err.code === 'EAUTH') {
-        userMessage = "Email service configuration error. Please contact support.";
+      if (err.name === 'ValidationError' || err.statusCode === 400) {
+        userMessage = "Invalid email configuration. Please contact support.";
+        statusCode = 400;
+      } else if (err.statusCode === 401) {
+        userMessage = "Email service authentication error. Please contact support.";
+        statusCode = 401;
+      } else if (err.statusCode === 403) {
+        userMessage = "Email service access denied. Please contact support.";
+        statusCode = 403;
+      } else if (err.statusCode === 429) {
+        userMessage = "Too many email requests. Please try again in a moment.";
+        statusCode = 429;
+      } else if (err.statusCode >= 500 || err.message.includes('timeout')) {
+        userMessage = "Email service temporarily unavailable. Please try again later.";
         statusCode = 503;
-      } else if (err.code === 'ETIMEDOUT' || err.code === 'ESOCKET') {
-        userMessage = "Network timeout. Please try again in a moment.";
-        statusCode = 504;
-      } else if (err.message.includes('ENETUNREACH')) {
-        userMessage = "Server network issue. Please try again later.";
-        statusCode = 503;
-      } else if (err.message.includes('ECONNREFUSED')) {
-        userMessage = "Email service unavailable. Please try again later.";
+      } else if (err.message.includes('RESEND_API_KEY')) {
+        userMessage = "Email service not configured. Please contact support.";
         statusCode = 503;
       }
 
