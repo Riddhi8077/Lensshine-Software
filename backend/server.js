@@ -1,12 +1,13 @@
 require("dotenv").config();
 const express = require("express");
-const nodemailer = require("nodemailer");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 const connectDB = require("./config/db");
 const orderRoutes = require("./routes/orders");
 const dashboardRoutes = require("./routes/dashboard");
+const { Resend } = require("resend");
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const app = express();
 
@@ -58,13 +59,7 @@ app.use(
 
 // ================= EMAIL =================
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: "lensshinemathura@gmail.com",
-    pass: "cghv wvzd twfo zrzw",
-  },
-});
+
 
 // ================= ROUTES =================
 
@@ -163,34 +158,48 @@ app.post("/send-invoice", async (req, res) => {
       ? `<img src="cid:lensshine-logo" alt="Lensshine Logo" style="height: 42px; width: auto; display:block;" />`
       : `<h1 style="color:#d4af37; margin:0; font-size:40px; line-height:1.05; font-weight:700;">Lensshine</h1>`;
 
-    await transporter.sendMail({
-      from: "lensshinemathura@gmail.com",
-      to: email,
-      subject: "Your Lensshine Invoice 🧾",
-
-      html: `
-        <div style="font-family: Arial, Helvetica, sans-serif; padding: 16px; max-width: 620px; margin: 0 auto; background: #070912;">
-          <div style="background: linear-gradient(135deg, #111a3e 0%, #0f224a 100%); padding: 22px 24px; border-radius: 14px;">
-            ${logoHtml}
-            <p style="color: rgba(255,255,255,0.72); margin: 10px 0 0 0; font-size: 14px;">Premium Optical Store</p>
-          </div>
-          <div style="padding: 24px; background: #23262f; border-radius: 14px; margin-top: 12px;">
-            <h2 style="color: #f5f6fb; margin: 0 0 10px 0; font-size: 30px; line-height: 1.15; font-weight: 700;">
-              Thank you for your purchase! 👓
-            </h2>
-            <p style="color: #a8afbd; margin: 0 0 16px 0; font-size: 16px; line-height: 1.35;">Please find your invoice below.</p>
-            <div style="background: #ffffff; border-radius: 10px; padding: 10px;">
-              ${inlineImageHtml}
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM,
+        to: email,
+        subject: "Your Lensshine Invoice 🧾",
+      
+        html: `
+          <div style="font-family: Arial, Helvetica, sans-serif; padding: 16px; max-width: 620px; margin: 0 auto; background: #070912;">
+            <div style="background: linear-gradient(135deg, #111a3e 0%, #0f224a 100%); padding: 22px 24px; border-radius: 14px;">
+              ${logoHtml}
+              <p style="color: rgba(255,255,255,0.72); margin: 10px 0 0 0; font-size: 14px;">
+                Premium Optical Store
+              </p>
+            </div>
+      
+            <div style="padding: 24px; background: #23262f; border-radius: 14px; margin-top: 12px;">
+              <h2 style="color: #f5f6fb; margin: 0 0 10px 0; font-size: 30px; line-height: 1.15; font-weight: 700;">
+                Thank you for your purchase! 👓
+              </h2>
+      
+              <p style="color: #a8afbd; margin: 0 0 16px 0; font-size: 16px; line-height: 1.35;">
+                Please find your invoice below.
+              </p>
+      
+              <div style="background: #ffffff; border-radius: 10px; padding: 10px;">
+                ${inlineImageHtml}
+              </div>
+            </div>
+      
+            <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); text-align: center;">
+              <p style="color: #9ca3af; font-size: 12px; margin: 0;">
+                For support: contact@lensshine.com | +91 98765 43210
+              </p>
             </div>
           </div>
-          <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); text-align: center;">
-            <p style="color: #9ca3af; font-size: 12px; margin: 0;">For support: contact@lensshine.com | +91 98765 43210</p>
-          </div>
-        </div>
-      `,
-
-      attachments,
-    });
+        `,
+      
+        attachments: attachments.map((file) => ({
+          filename: file.filename,
+          content: file.content,
+          path: file.path,
+        })),
+      });
 
     console.log("✅ Email sent successfully to:", email);
     res.json({ success: true, message: "Email sent successfully" });

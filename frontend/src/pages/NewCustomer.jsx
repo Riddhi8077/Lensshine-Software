@@ -1251,7 +1251,7 @@ const generateInvoiceImage = async () => {
         <div className="text-center pt-4 border-t border-slate-200">
           <p className="text-slate-600 text-sm font-medium">Thank you for your business!</p>
           <p className="text-slate-400 text-xs mt-1">
-            For support: contact@lensshine.com | +91 98765 43210
+            For support: lensshinemathura@gmail.com | +91 79067 20813
           </p>
         </div>
       </div>
