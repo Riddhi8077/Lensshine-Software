@@ -43,7 +43,16 @@ const LensSelection = () => {
     route: "/lens/progressive",
     image: progressiveImg,
   },
+  {
+    title: "Custom Lens",
+    description:
+      "Create a custom lens option by entering lens name and price.",
+    icon: <FaSearchPlus className="text-gold/50 group-hover:text-gold" />,
+    route: "/lens/custom",
+    image: progressiveImg,
+  },
 ];
+
 
   return (
     <div className="min-h-screen py-24 px-4 sm:px-6 lg:px-8">
