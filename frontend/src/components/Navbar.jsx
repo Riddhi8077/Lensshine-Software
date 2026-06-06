@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { Menu, X, Home, UserPlus, LayoutDashboard, History } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Menu, X, Home, UserPlus, LayoutDashboard, History, LogOut } from "lucide-react";
+
 
 // simple replacement for cn()
 function cn(...classes) {
@@ -17,9 +18,16 @@ const NAV_ITEMS = [
 function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const onLogout = () => {
+    localStorage.removeItem("lensshine-auth");
+    navigate("/login", { replace: true });
+  };
 
   return (
     <nav
+
       data-testid="navbar"
       className="fixed top-0 w-full bg-black/60 backdrop-blur-xl border-b border-white/10 z-50"
     >
@@ -53,6 +61,17 @@ function Navbar() {
             ))}
           </div>
 
+          {/* Logout (Desktop) */}
+          <div className="hidden sm:flex items-center">
+            <button
+              onClick={onLogout}
+              className="ml-3 inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 text-white/70 hover:text-white hover:bg-white/5"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
+          </div>
+
           {/* Mobile Button */}
           <button
             className="md:hidden text-white/70 hover:text-white"
@@ -66,6 +85,7 @@ function Navbar() {
           </button>
         </div>
       </div>
+
 
       {/* Mobile Menu */}
       {mobileOpen && (
@@ -86,8 +106,20 @@ function Navbar() {
               {label}
             </Link>
           ))}
+
+          <button
+            onClick={() => {
+              setMobileOpen(false);
+              onLogout();
+            }}
+            className="w-full text-left flex items-center gap-3 px-6 py-3 text-sm text-white/70 hover:text-white"
+          >
+            <LogOut className="h-4 w-4" />
+            Logout
+          </button>
         </div>
       )}
+
     </nav>
   );
 }

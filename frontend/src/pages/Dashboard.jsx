@@ -29,9 +29,8 @@ function Dashboard() {
 
   useEffect(() => {
     fetchData();
-    const intervalId = setInterval(fetchData, 10000);
-    return () => clearInterval(intervalId);
   }, [fetchData]);
+
 
   return (
     <div className="pt-20 pb-12 px-4 sm:px-6 min-h-screen">

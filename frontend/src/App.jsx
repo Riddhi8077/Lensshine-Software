@@ -6,7 +6,9 @@ import Dashboard from "./pages/Dashboard";
 import CustomerHistory from "./pages/CustomerHistory";
 import { Toaster } from "sonner";
 
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+
+import PasswordLogin from "./pages/PasswordLogin";
 
 // Lens pages
 import LensSelection from "./pages/LensSelection";
@@ -14,10 +16,30 @@ import SingleVisionLens from "./pages/SingleVisionLens";
 import BifocalLens from "./pages/BifocalLens";
 import ProgressiveLens from "./pages/ProgressiveLens";
 
+const AUTH_KEY = "lensshine-auth";
+
+function RequireAuth({ children }) {
+  const location = useLocation();
+  const isAuthed = localStorage.getItem(AUTH_KEY) === "1";
+
+  if (!isAuthed) {
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: location.pathname || "/" }}
+      />
+    );
+  }
+
+  return children;
+}
+
 function App() {
   const [theme, setTheme] = useState(
     localStorage.getItem("lensshine-theme") || "dark"
   );
+
 
   useEffect(() => {
     document.documentElement.style.scrollBehavior = "smooth";
@@ -51,18 +73,77 @@ function App() {
         <Navbar />
 
         <Routes>
-          {/* Main App */}
-          <Route path="/" element={<HomePage />} />
-          <Route path="/new-customer" element={<NewCustomer />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/history" element={<CustomerHistory />} />
+          <Route path="/login" element={<PasswordLogin />} />
 
-          {/* Lens Flow */}
-          <Route path="/lens-selection" element={<LensSelection />} />
-          <Route path="/lens/single-vision" element={<SingleVisionLens />} />
-          <Route path="/lens/bifocal" element={<BifocalLens />} />
-          <Route path="/lens/progressive" element={<ProgressiveLens />} />
+          {/* Main App (protected) */}
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <HomePage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/new-customer"
+            element={
+              <RequireAuth>
+                <NewCustomer />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <RequireAuth>
+                <Dashboard />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <RequireAuth>
+                <CustomerHistory />
+              </RequireAuth>
+            }
+          />
+
+          {/* Lens Flow (protected) */}
+          <Route
+            path="/lens-selection"
+            element={
+              <RequireAuth>
+                <LensSelection />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/lens/single-vision"
+            element={
+              <RequireAuth>
+                <SingleVisionLens />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/lens/bifocal"
+            element={
+              <RequireAuth>
+                <BifocalLens />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/lens/progressive"
+            element={
+              <RequireAuth>
+                <ProgressiveLens />
+              </RequireAuth>
+            }
+          />
         </Routes>
+
 
         <Toaster
           theme={theme === "light" ? "light" : "dark"}
