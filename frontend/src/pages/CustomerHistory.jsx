@@ -16,6 +16,90 @@ import {
 
 import { API } from "../config/api";
 
+const money = (value) => Number(value || 0).toLocaleString();
+
+const getOrderItems = (order) => {
+  if (Array.isArray(order.items) && order.items.length > 0) {
+    return order.items.map((item) => {
+      const frame1Price = Number(item.frame1_price || 0);
+      const frame2Price = Number(item.frame2_price || 0);
+      const bogoEnabled = Boolean(item.bogo_enabled);
+      const bogoDiscount = bogoEnabled ? Number(item.bogo_discount || Math.min(frame1Price, frame2Price)) : 0;
+      const frameTotal = frame1Price + (bogoEnabled ? frame2Price : 0) - bogoDiscount;
+      const lensPrice = Number(item.lens_price || 0);
+
+      return {
+        frame1Price,
+        frame2Price,
+        bogoEnabled,
+        bogoDiscount,
+        frameTotal,
+        lensName: item.lens_name || "Lens",
+        lensPrice,
+      };
+    });
+  }
+
+  return [
+    {
+      frame1Price: Number(order.frame_price || 0),
+      frame2Price: 0,
+      bogoEnabled: false,
+      bogoDiscount: 0,
+      frameTotal: Number(order.frame_price || 0),
+      lensName: order.lens_name || "Lens",
+      lensPrice: Number(order.lens_price || 0),
+    },
+  ];
+};
+
+const invoiceRowsHtml = (order) =>
+  getOrderItems(order)
+    .map((item, index, allItems) => {
+      const heading =
+        allItems.length > 1
+          ? `<tr style="border-top:1px solid #e2e8f0; background:#f8fafc;"><td colspan="4" style="padding:8px 16px; color:#64748b; font-size:11px; font-weight:700; text-transform:uppercase;">Item ${index + 1}</td></tr>`
+          : "";
+      const bogoRows = item.bogoEnabled
+        ? `
+          <tr style="border-top:1px solid #e2e8f0;">
+            <td style="padding:12px 16px; color:#0f172a;">Frame 2 Price</td>
+            <td style="padding:12px 16px; text-align:center; color:#64748b;">1</td>
+            <td style="padding:12px 16px; text-align:right; color:#64748b;">₹${money(item.frame2Price)}</td>
+            <td style="padding:12px 16px; text-align:right; color:#0f172a; font-weight:500;">₹${money(item.frame2Price)}</td>
+          </tr>
+          <tr style="border-top:1px solid #e2e8f0;">
+            <td style="padding:12px 16px; color:#15803d;">BOGO Discount</td>
+            <td style="padding:12px 16px; text-align:center; color:#64748b;">-</td>
+            <td style="padding:12px 16px; text-align:right; color:#15803d;">-₹${money(item.bogoDiscount)}</td>
+            <td style="padding:12px 16px; text-align:right; color:#15803d; font-weight:500;">-₹${money(item.bogoDiscount)}</td>
+          </tr>
+          <tr style="border-top:1px solid #e2e8f0;">
+            <td style="padding:12px 16px; color:#0f172a;">Final Frame Total</td>
+            <td style="padding:12px 16px; text-align:center; color:#64748b;">-</td>
+            <td style="padding:12px 16px; text-align:right; color:#64748b;">-</td>
+            <td style="padding:12px 16px; text-align:right; color:#0f172a; font-weight:500;">₹${money(item.frameTotal)}</td>
+          </tr>`
+        : "";
+
+      return `
+        ${heading}
+        <tr style="border-top:1px solid #e2e8f0;">
+          <td style="padding:12px 16px; color:#0f172a;">${item.bogoEnabled ? "Frame 1 Price" : "Frame"}</td>
+          <td style="padding:12px 16px; text-align:center; color:#64748b;">1</td>
+          <td style="padding:12px 16px; text-align:right; color:#64748b;">₹${money(item.frame1Price)}</td>
+          <td style="padding:12px 16px; text-align:right; color:#0f172a; font-weight:500;">₹${money(item.frame1Price)}</td>
+        </tr>
+        ${bogoRows}
+        <tr style="border-top:1px solid #e2e8f0;">
+          <td style="padding:12px 16px; color:#0f172a;">${item.lensName}</td>
+          <td style="padding:12px 16px; text-align:center; color:#64748b;">1</td>
+          <td style="padding:12px 16px; text-align:right; color:#64748b;">₹${money(item.lensPrice)}</td>
+          <td style="padding:12px 16px; text-align:right; color:#0f172a; font-weight:500;">₹${money(item.lensPrice)}</td>
+        </tr>`;
+    })
+    .join("");
+
 function CustomerHistory() {
   const navigate = useNavigate();
   const [mobile, setMobile] = useState("");
@@ -169,6 +253,22 @@ function CustomerHistory() {
 
                     {isExpanded && (
                       <div className="p-4 border-t border-white/10 text-sm text-white/70 space-y-1">
+                        {getOrderItems(order).map((item, index, allItems) => (
+                          <div key={index} className="space-y-1">
+                            {allItems.length > 1 && (
+                              <p className="text-[#d4af37] font-medium pt-1">Item {index + 1}</p>
+                            )}
+                            <p><strong className="text-white">{item.bogoEnabled ? "Frame 1 Price" : "Frame"}:</strong> ₹{money(item.frame1Price)}</p>
+                            {item.bogoEnabled && (
+                              <>
+                                <p><strong className="text-white">Frame 2 Price:</strong> ₹{money(item.frame2Price)}</p>
+                                <p><strong className="text-white">BOGO Discount:</strong> <span className="text-green-400">-₹{money(item.bogoDiscount)}</span></p>
+                                <p><strong className="text-white">Final Frame Total:</strong> ₹{money(item.frameTotal)}</p>
+                              </>
+                            )}
+                            <p><strong className="text-white">Lens:</strong> ₹{money(item.lensPrice)}</p>
+                          </div>
+                        ))}
                         <p><strong className="text-white">Frame:</strong> ₹{Number(order.frame_price).toLocaleString()}</p>
                         <p><strong className="text-white">Lens:</strong> ₹{Number(order.lens_price).toLocaleString()}</p>
                         <p><strong className="text-white">Paid:</strong> <span className="text-green-400">₹{Number(order.paid_amount).toLocaleString()}</span></p>
@@ -230,13 +330,14 @@ function CustomerHistory() {
                                               </tr>
                                             </thead>
                                             <tbody>
-                                              <tr style="border-top:1px solid #e2e8f0;">
+                                              ${invoiceRowsHtml(order)}
+                                              <tr style="border-top:1px solid #e2e8f0; display:none;">
                                                 <td style="padding:12px 16px; color:#0f172a;">Frame</td>
                                                 <td style="padding:12px 16px; text-align:center; color:#64748b;">1</td>
                                                 <td style="padding:12px 16px; text-align:right; color:#64748b;">₹${Number(order.frame_price || 0).toLocaleString()}</td>
                                                 <td style="padding:12px 16px; text-align:right; color:#0f172a; font-weight:500;">₹${Number(order.frame_price || 0).toLocaleString()}</td>
                                               </tr>
-                                              <tr style="border-top:1px solid #e2e8f0;">
+                                              <tr style="border-top:1px solid #e2e8f0; display:none;">
                                                 <td style="padding:12px 16px; color:#0f172a;">${order.lens_name || "Lens"}</td>
                                                 <td style="padding:12px 16px; text-align:center; color:#64748b;">1</td>
                                                 <td style="padding:12px 16px; text-align:right; color:#64748b;">₹${Number(order.lens_price || 0).toLocaleString()}</td>

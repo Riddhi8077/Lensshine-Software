@@ -37,6 +37,8 @@ function CustomLens() {
     navigate("/new-customer", {
       state: {
         selectedLens,
+        orderItems: location.state?.orderItems,
+        activeItemIndex: location.state?.activeItemIndex,
         customerName: location.state?.customerName,
         mobile: location.state?.mobile,
         address: location.state?.address,
