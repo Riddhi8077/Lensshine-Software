@@ -790,7 +790,7 @@ const generateInvoiceImage = async () => {
 
             <div className="relative">
               <span className="absolute left-1 top-1/2 -translate-y-1/2 text-primary font-medium">
-                â‚¹
+                
               </span>
 
               <Input
