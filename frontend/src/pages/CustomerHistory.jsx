@@ -16,6 +16,90 @@ import {
 
 import { API } from "../config/api";
 
+const money = (value) => Number(value || 0).toLocaleString();
+
+const getOrderItems = (order) => {
+  if (Array.isArray(order.items) && order.items.length > 0) {
+    return order.items.map((item) => {
+      const frame1Price = Number(item.frame1_price || 0);
+      const frame2Price = Number(item.frame2_price || 0);
+      const bogoEnabled = Boolean(item.bogo_enabled);
+      const bogoDiscount = bogoEnabled ? Number(item.bogo_discount || Math.min(frame1Price, frame2Price)) : 0;
+      const frameTotal = frame1Price + (bogoEnabled ? frame2Price : 0) - bogoDiscount;
+      const lensPrice = Number(item.lens_price || 0);
+
+      return {
+        frame1Price,
+        frame2Price,
+        bogoEnabled,
+        bogoDiscount,
+        frameTotal,
+        lensName: item.lens_name || "Lens",
+        lensPrice,
+      };
+    });
+  }
+
+  return [
+    {
+      frame1Price: Number(order.frame_price || 0),
+      frame2Price: 0,
+      bogoEnabled: false,
+      bogoDiscount: 0,
+      frameTotal: Number(order.frame_price || 0),
+      lensName: order.lens_name || "Lens",
+      lensPrice: Number(order.lens_price || 0),
+    },
+  ];
+};
+
+const invoiceRowsHtml = (order) =>
+  getOrderItems(order)
+    .map((item, index, allItems) => {
+      const heading =
+        allItems.length > 1
+          ? `<tr style="border-top:1px solid #e2e8f0; background:#f8fafc;"><td colspan="4" style="padding:8px 16px; color:#64748b; font-size:11px; font-weight:700; text-transform:uppercase;">Item ${index + 1}</td></tr>`
+          : "";
+      const bogoRows = item.bogoEnabled
+        ? `
+          <tr style="border-top:1px solid #e2e8f0;">
+            <td style="padding:12px 16px; color:#0f172a;">Frame 2 Price</td>
+            <td style="padding:12px 16px; text-align:center; color:#64748b;">1</td>
+            <td style="padding:12px 16px; text-align:right; color:#64748b;">₹${money(item.frame2Price)}</td>
+            <td style="padding:12px 16px; text-align:right; color:#0f172a; font-weight:500;">₹${money(item.frame2Price)}</td>
+          </tr>
+          <tr style="border-top:1px solid #e2e8f0;">
+            <td style="padding:12px 16px; color:#15803d;">BOGO Discount</td>
+            <td style="padding:12px 16px; text-align:center; color:#64748b;">-</td>
+            <td style="padding:12px 16px; text-align:right; color:#15803d;">-₹${money(item.bogoDiscount)}</td>
+            <td style="padding:12px 16px; text-align:right; color:#15803d; font-weight:500;">-₹${money(item.bogoDiscount)}</td>
+          </tr>
+          <tr style="border-top:1px solid #e2e8f0;">
+            <td style="padding:12px 16px; color:#0f172a;">Final Frame Total</td>
+            <td style="padding:12px 16px; text-align:center; color:#64748b;">-</td>
+            <td style="padding:12px 16px; text-align:right; color:#64748b;">-</td>
+            <td style="padding:12px 16px; text-align:right; color:#0f172a; font-weight:500;">₹${money(item.frameTotal)}</td>
+          </tr>`
+        : "";
+
+      return `
+        ${heading}
+        <tr style="border-top:1px solid #e2e8f0;">
+          <td style="padding:12px 16px; color:#0f172a;">${item.bogoEnabled ? "Frame 1 Price" : "Frame"}</td>
+          <td style="padding:12px 16px; text-align:center; color:#64748b;">1</td>
+          <td style="padding:12px 16px; text-align:right; color:#64748b;">₹${money(item.frame1Price)}</td>
+          <td style="padding:12px 16px; text-align:right; color:#0f172a; font-weight:500;">₹${money(item.frame1Price)}</td>
+        </tr>
+        ${bogoRows}
+        <tr style="border-top:1px solid #e2e8f0;">
+          <td style="padding:12px 16px; color:#0f172a;">${item.lensName}</td>
+          <td style="padding:12px 16px; text-align:center; color:#64748b;">1</td>
+          <td style="padding:12px 16px; text-align:right; color:#64748b;">₹${money(item.lensPrice)}</td>
+          <td style="padding:12px 16px; text-align:right; color:#0f172a; font-weight:500;">₹${money(item.lensPrice)}</td>
+        </tr>`;
+    })
+    .join("");
+
 function CustomerHistory() {
   const navigate = useNavigate();
   const [mobile, setMobile] = useState("");
@@ -169,10 +253,166 @@ function CustomerHistory() {
 
                     {isExpanded && (
                       <div className="p-4 border-t border-white/10 text-sm text-white/70 space-y-1">
+                        {getOrderItems(order).map((item, index, allItems) => (
+                          <div key={index} className="space-y-1">
+                            {allItems.length > 1 && (
+                              <p className="text-[#d4af37] font-medium pt-1">Item {index + 1}</p>
+                            )}
+                            <p><strong className="text-white">{item.bogoEnabled ? "Frame 1 Price" : "Frame"}:</strong> ₹{money(item.frame1Price)}</p>
+                            {item.bogoEnabled && (
+                              <>
+                                <p><strong className="text-white">Frame 2 Price:</strong> ₹{money(item.frame2Price)}</p>
+                                <p><strong className="text-white">BOGO Discount:</strong> <span className="text-green-400">-₹{money(item.bogoDiscount)}</span></p>
+                                <p><strong className="text-white">Final Frame Total:</strong> ₹{money(item.frameTotal)}</p>
+                              </>
+                            )}
+                            <p><strong className="text-white">Lens:</strong> ₹{money(item.lensPrice)}</p>
+                          </div>
+                        ))}
                         <p><strong className="text-white">Frame:</strong> ₹{Number(order.frame_price).toLocaleString()}</p>
                         <p><strong className="text-white">Lens:</strong> ₹{Number(order.lens_price).toLocaleString()}</p>
                         <p><strong className="text-white">Paid:</strong> <span className="text-green-400">₹{Number(order.paid_amount).toLocaleString()}</span></p>
                         <p><strong className="text-white">Remaining:</strong> <span className="text-amber-400">₹{Number(order.remaining_amount).toLocaleString()}</span></p>
+
+                        <div className="pt-3">
+                          <button
+                            onClick={() => {
+                              // Client-side invoice regeneration (no new PDF library)
+                              (async () => {
+                                try {
+                                  const htmlToImage = await import("html-to-image");
+
+                                  const container = document.createElement("div");
+                                  container.style.position = "absolute";
+                                  container.style.left = "-9999px";
+                                  container.style.top = "0";
+                                  container.style.width = "700px";
+
+                                  container.innerHTML = `
+                                    <div style="background:#fff; border-radius:12px; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+                                      <div style="background: linear-gradient(to right, #0f172a, #334155, #0f172a); padding:18px 24px;">
+                                        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                          <div>
+                                            <div style="font-weight:800; color:#fff; font-size:18px;">Lensshine</div>
+                                            <div style="color: rgba(255,255,255,0.65); font-size:12px; margin-top:2px;">Premium Optical Store</div>
+                                          </div>
+                                          <div style="text-align:right;">
+                                            <div style="color: rgba(255,255,255,0.7); font-size:12px;">INVOICE</div>
+                                            <div style="color:#fff; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,'Liberation Mono','Courier New',monospace; font-size:12px; margin-top:2px;">
+                                              #${String(order._id).slice(0, 8) || "----"}
+                                            </div>
+                                            <div style="color: rgba(255,255,255,0.65); font-size:12px; margin-top:4px;">
+                                              ${order.booking_date ? new Date(order.booking_date).toLocaleDateString() : new Date(order.createdAt).toLocaleDateString()}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      <div style="padding:24px;">
+                                        <div style="background:#f1f5f9; border:1px solid #e2e8f0; border-radius:10px; padding:16px; margin-bottom:16px;">
+                                          <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                                            <div style="width:10px; height:10px; background:#d4af37; border-radius:999px;"></div>
+                                            <div style="color:#64748b; font-size:11px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase;">Customer Information</div>
+                                          </div>
+                                          <div style="color:#0f172a; font-weight:700;">${order.customer_name || "N/A"}</div>
+                                          <div style="color:#334155; font-size:14px; margin-top:2px;">${order.mobile || "N/A"}</div>
+                                          ${order.address ? `<div style="color:#64748b; font-size:14px; margin-top:6px;">${order.address}</div>` : ""}
+                                        </div>
+
+                                        <div style="border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; margin-bottom:16px;">
+                                          <table style="width:100%; border-collapse:collapse;">
+                                            <thead>
+                                              <tr style="background:#f1f5f9;">
+                                                <th style="text-align:left; padding:12px 16px; color:#64748b; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Product</th>
+                                                <th style="text-align:center; padding:12px 16px; color:#64748b; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Qty</th>
+                                                <th style="text-align:right; padding:12px 16px; color:#64748b; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Price</th>
+                                                <th style="text-align:right; padding:12px 16px; color:#64748b; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Total</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              ${invoiceRowsHtml(order)}
+                                              <tr style="border-top:1px solid #e2e8f0; display:none;">
+                                                <td style="padding:12px 16px; color:#0f172a;">Frame</td>
+                                                <td style="padding:12px 16px; text-align:center; color:#64748b;">1</td>
+                                                <td style="padding:12px 16px; text-align:right; color:#64748b;">₹${Number(order.frame_price || 0).toLocaleString()}</td>
+                                                <td style="padding:12px 16px; text-align:right; color:#0f172a; font-weight:500;">₹${Number(order.frame_price || 0).toLocaleString()}</td>
+                                              </tr>
+                                              <tr style="border-top:1px solid #e2e8f0; display:none;">
+                                                <td style="padding:12px 16px; color:#0f172a;">${order.lens_name || "Lens"}</td>
+                                                <td style="padding:12px 16px; text-align:center; color:#64748b;">1</td>
+                                                <td style="padding:12px 16px; text-align:right; color:#64748b;">₹${Number(order.lens_price || 0).toLocaleString()}</td>
+                                                <td style="padding:12px 16px; text-align:right; color:#0f172a; font-weight:500;">₹${Number(order.lens_price || 0).toLocaleString()}</td>
+                                              </tr>
+                                            </tbody>
+                                          </table>
+                                        </div>
+
+                                        <div style="background:#f1f5f9; border:1px solid #e2e8f0; border-radius:10px; padding:16px; margin-bottom:16px;">
+                                          <div style="display:flex; justify-content:space-between; font-size:14px;">
+                                            <span style="color:#64748b;">Subtotal</span>
+                                            <span style="color:#0f172a;">₹${Number(order.total_amount || 0).toLocaleString()}</span>
+                                          </div>
+                                          <div style="display:flex; justify-content:space-between; font-size:14px; margin-top:6px;">
+                                            <span style="color:#16a34a;">Paid</span>
+                                            <span style="color:#16a34a; font-weight:600;">₹${Number(order.paid_amount || 0).toLocaleString()}</span>
+                                          </div>
+                                          <div style="display:flex; justify-content:space-between; font-size:14px; margin-top:6px;">
+                                            <span style="color:#f59e0b;">Remaining</span>
+                                            <span style="color:#f59e0b; font-weight:600;">₹${Number(order.remaining_amount || 0).toLocaleString()}</span>
+                                          </div>
+                                          <div style="border-top:1px solid #cbd5e1; padding-top:8px; margin-top:8px; display:flex; justify-content:space-between;">
+                                            <span style="color:#0f172a; font-weight:700;">Grand Total</span>
+                                            <span style="color:#d4af37; font-weight:800; font-size:18px;">₹${Number(order.total_amount || 0).toLocaleString()}</span>
+                                          </div>
+                                        </div>
+
+                                        <div style="text-align:center; padding-top:10px; border-top:1px solid #e2e8f0;">
+                                          <div style="color:#64748b; font-size:14px; font-weight:500;">Thank you for your business!</div>
+                                          <div style="color:#94a3b8; font-size:12px; margin-top:4px;">For support: lensshinemathura@gmail.com | +91 79067 20813</div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  `;
+
+                                  container.querySelectorAll("img").forEach((img) => (img.decoding = "async"));
+                                  document.body.appendChild(container);
+
+                                  const target = container.querySelector("div[style*='background:#fff']") || container.firstElementChild;
+                                  if (!target || !(target instanceof Element)) {
+                                    // Let html-to-image throw naturally if something is still wrong
+                                    throw new Error("Invoice render element not found");
+                                  }
+                                  const blob = await htmlToImage.toBlob(target, {
+                                    cacheBust: true,
+                                    pixelRatio: 2,
+                                    backgroundColor: "#ffffff",
+                                    skipFonts: true,
+                                  });
+
+                                  if (!blob) throw new Error("Failed to generate invoice image");
+
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement("a");
+                                  a.href = url;
+                                  a.download = `Lensshine_Invoice_${String(order._id).slice(0, 6).toUpperCase()}.png`;
+                                  document.body.appendChild(a);
+                                  a.click();
+                                  a.remove();
+                                  URL.revokeObjectURL(url);
+
+                                  document.body.removeChild(container);
+                                  toast.success("Invoice downloaded");
+                                } catch (e) {
+                                  console.error(e);
+                                  toast.error("Failed to download invoice");
+                                }
+                              })();
+                            }}
+                            className="mt-2 w-full bg-[#d4af37] text-black px-4 py-2 text-sm rounded-lg hover:bg-[#f3e5ab] transition-colors"
+                          >
+                            Download Invoice
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

@@ -46,6 +46,74 @@ const slideVariants = {
   exit: { opacity: 0, x: -30 },
 };
 
+const emptyOrderItem = () => ({
+  frame1Price: "",
+  frame2Price: "",
+  bogoEnabled: false,
+  lens: null,
+});
+
+const numberValue = (value) => Number(value) || 0;
+
+const calculateItem = (item) => {
+  const frame1Price = numberValue(item.frame1Price ?? item.frame1_price ?? item.frame_price);
+  const frame2Price = numberValue(item.frame2Price ?? item.frame2_price);
+  const lensPrice = numberValue(item.lens?.price ?? item.lens_price);
+  const bogoEnabled = Boolean(item.bogoEnabled ?? item.bogo_enabled);
+  const bogoDiscount = bogoEnabled ? Math.min(frame1Price, frame2Price) : 0;
+  const frameTotal = frame1Price + (bogoEnabled ? frame2Price : 0) - bogoDiscount;
+
+  return {
+    frame1Price,
+    frame2Price,
+    lensPrice,
+    bogoEnabled,
+    bogoDiscount,
+    frameTotal,
+    itemTotal: frameTotal + lensPrice,
+    lensName: item.lens?.name ?? item.lens_name ?? "",
+  };
+};
+
+const toApiItem = (item) => {
+  const totals = calculateItem(item);
+  return {
+    frame1_price: totals.frame1Price,
+    frame2_price: totals.bogoEnabled ? totals.frame2Price : 0,
+    bogo_enabled: totals.bogoEnabled,
+    bogo_discount: totals.bogoDiscount,
+    lens_name: totals.lensName,
+    lens_price: totals.lensPrice,
+    item_total: totals.itemTotal,
+  };
+};
+
+const normalizeOrderItems = (sourceItems, fallback = {}) => {
+  if (Array.isArray(sourceItems) && sourceItems.length > 0) {
+    return sourceItems.map((item) => ({
+      frame1Price: item.frame1Price ?? item.frame1_price ?? "",
+      frame2Price: item.frame2Price ?? item.frame2_price ?? "",
+      bogoEnabled: Boolean(item.bogoEnabled ?? item.bogo_enabled),
+      lens: item.lens || {
+        name: item.lens_name || "",
+        price: item.lens_price || 0,
+      },
+    }));
+  }
+
+  return [
+    {
+      frame1Price: fallback.framePrice ?? fallback.frame_price ?? "",
+      frame2Price: "",
+      bogoEnabled: false,
+      lens: fallback.lens || {
+        name: fallback.lens_name || "",
+        price: fallback.lens_price || 0,
+      },
+    },
+  ];
+};
+
 function NewCustomer() {
   const [showScanner, setShowScanner] = useState(false);
   const navigate = useNavigate();
@@ -56,6 +124,8 @@ function NewCustomer() {
   // Step 0: Frame
   const [frameMethod, setFrameMethod] = useState("manual");
   const [framePrice, setFramePrice] = useState("");
+  const [orderItems, setOrderItems] = useState([emptyOrderItem()]);
+  const [activeItemIndex, setActiveItemIndex] = useState(0);
   const [scanActive, setScanActive] = useState(false);
 
   // Step 1: Customer Details
@@ -72,14 +142,41 @@ function NewCustomer() {
   // Step 2: Lens
   const [lenses, setLenses] = useState([]);
   const [selectedLens, setSelectedLens] = useState(null);
-  const lensPrice = Number(selectedLens?.price) || 0;
-  const frameAmount = Number(framePrice) || 0;
+  const activeItem = orderItems[activeItemIndex] || orderItems[0] || emptyOrderItem();
+  const activeTotals = calculateItem(activeItem);
+  const lensPrice = activeTotals.lensPrice;
+  const frameAmount = activeTotals.frameTotal;
+  const itemTotals = orderItems.map(calculateItem);
 
-const totalAmount = frameAmount + lensPrice;
+const totalAmount = itemTotals.reduce((sum, item) => sum + item.itemTotal, 0);
 
 console.log("LENS:", selectedLens);
 console.log("TOTAL:", totalAmount);
 console.log("ENTERED FRAME:", framePrice);
+
+const updateItem = (index, patch) => {
+  setOrderItems((current) =>
+    current.map((item, itemIndex) =>
+      itemIndex === index ? { ...item, ...patch } : item
+    )
+  );
+};
+
+const updateActiveItem = (patch) => {
+  updateItem(activeItemIndex, patch);
+  if (activeItemIndex === 0 && Object.prototype.hasOwnProperty.call(patch, "frame1Price")) {
+    setFramePrice(patch.frame1Price);
+    localStorage.setItem("framePrice", patch.frame1Price);
+  }
+};
+
+const addMoreFrame = () => {
+  setOrderItems((current) => [...current, emptyOrderItem()]);
+  setActiveItemIndex(orderItems.length);
+  setSelectedLens(null);
+  setFrameMethod("manual");
+  setStep(0);
+};
 
 useEffect(() => {
   let scanner;
@@ -95,7 +192,7 @@ useEffect(() => {
           qrbox: 220,
         },
         (decodedText) => {
-          setFramePrice(Number(decodedText));
+          updateActiveItem({ frame1Price: Number(decodedText) });
           setShowScanner(false);
 
           scanner.stop().then(() => {
@@ -114,16 +211,38 @@ useEffect(() => {
       scanner.stop().catch(() => {});
     }
   };
-}, [showScanner]);
+}, [showScanner, activeItemIndex]);
 
 useEffect(() => {
   const storedFrame = localStorage.getItem("framePrice");
 
   if (storedFrame) {
     setFramePrice(Number(storedFrame));
+    setOrderItems((current) =>
+      current.map((item, index) =>
+        index === 0 ? { ...item, frame1Price: Number(storedFrame) } : item
+      )
+    );
   }
 
   if (location.state) {
+    const incomingItems = normalizeOrderItems(location.state.orderItems, {
+      framePrice: location.state.framePrice || storedFrame,
+      lens: location.state.selectedLens,
+    });
+    const incomingIndex = Number(location.state.activeItemIndex) || 0;
+
+    setOrderItems((current) => {
+      const baseItems = Array.isArray(location.state.orderItems) && location.state.orderItems.length > 0
+        ? incomingItems
+        : current;
+      return baseItems.map((item, index) =>
+        index === incomingIndex && location.state.selectedLens
+          ? { ...item, lens: location.state.selectedLens }
+          : item
+      );
+    });
+    setActiveItemIndex(incomingIndex);
 
     // Restore lens
     if (location.state.selectedLens) {
@@ -198,9 +317,11 @@ useEffect(() => {
           right_eye: rightEye,
           left_eye: leftEye,
         },
-        frame_price: parseFloat(framePrice) || 0,
-        lens_name: selectedLens?.name || "",
-        lens_price: selectedLens?.price || 0,
+        frame_price: itemTotals[0]?.frameTotal || 0,
+        lens_name: orderItems[0]?.lens?.name || selectedLens?.name || "",
+        lens_price: orderItems[0]?.lens?.price || selectedLens?.price || 0,
+        items: orderItems.map(toApiItem),
+        discount: itemTotals.reduce((sum, item) => sum + item.bogoDiscount, 0),
         total_amount: totalAmount,
         paid_amount: 0,
         remaining_amount: totalAmount,
@@ -225,7 +346,7 @@ useEffect(() => {
 } finally {
       setLoading(false);
     }
-  }, [customerName, mobile, address, bookingDate, prescriptionType, prescriptionImage, rightEye, leftEye, framePrice, selectedLens, totalAmount]);
+  }, [customerName, mobile, address, bookingDate, prescriptionType, prescriptionImage, rightEye, leftEye, orderItems, selectedLens, totalAmount]);
 
   const confirmPayment = useCallback(async (amountToPay = payAmount) => {
     if (!orderId || amountToPay <= 0) return;
@@ -247,9 +368,9 @@ useEffect(() => {
 
 
   const canNext = () => {
-    if (step === 0) return parseFloat(framePrice) > 0;
+    if (step === 0) return activeTotals.frame1Price > 0 && (!activeTotals.bogoEnabled || activeTotals.frame2Price > 0);
     if (step === 1) return customerName.trim() && mobile.trim().length >= 10;
-    if (step === 2) return selectedLens !== null;
+    if (step === 2) return Boolean(activeItem.lens || selectedLens);
     return true;
   };
 
@@ -554,7 +675,7 @@ const generateInvoiceImage = async () => {
         Frame Selection
       </h2>
       <p className="text-muted-foreground mt-2 text-sm">
-        Scan frame QR or enter price manually
+        Scan frame QR or enter price manually for Item {activeItemIndex + 1}
       </p>
     </div>
 
@@ -621,11 +742,24 @@ const generateInvoiceImage = async () => {
       </div>
     </div>
 
+    <div className="max-w-md mx-auto">
+      <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-card p-4 text-sm text-foreground">
+        <input
+          type="checkbox"
+          checked={activeTotals.bogoEnabled}
+          onChange={(e) => updateActiveItem({ bogoEnabled: e.target.checked })}
+          className="h-4 w-4 accent-[#d4af37]"
+        />
+        <span>Buy 1 Get 1 Offer</span>
+      </label>
+    </div>
+
     {/* Frame Price Input (ONLY when manual selected) */}
     {frameMethod === "manual" && (
-      <div className="max-w-md mx-auto mt-6">
+      <div className="max-w-md mx-auto mt-6 space-y-4">
+        <div>
         <Label className="text-muted-foreground text-xs tracking-wider uppercase mb-2 block">
-          Frame Price
+          {activeTotals.bogoEnabled ? "Frame 1 Price" : "Frame Price"}
         </Label>
 
         <div className="relative">
@@ -637,17 +771,52 @@ const generateInvoiceImage = async () => {
   data-testid="frame-price-input"
   type="number"
   placeholder="0"
-  value={framePrice}
+  value={activeItem.frame1Price}
   onChange={(e) => {
   const value = Number(e.target.value);
-  setFramePrice(value);
-
-  localStorage.setItem("framePrice", value);
+  updateActiveItem({ frame1Price: value });
 }}
   className="pl-20 h-12 left-7 text-lg bg-card border border-border text-foreground focus:border-primary focus:ring-1 focus:ring-primary"
   style={{ backgroundColor: "hsl(var(--card))" }}
 />
         </div>
+        </div>
+
+        {activeTotals.bogoEnabled && (
+          <div>
+            <Label className="text-muted-foreground text-xs tracking-wider uppercase mb-2 block">
+              Frame 2 Price
+            </Label>
+
+            <div className="relative">
+              <span className="absolute left-1 top-1/2 -translate-y-1/2 text-primary font-medium">
+                â‚¹
+              </span>
+
+              <Input
+                type="number"
+                placeholder="0"
+                value={activeItem.frame2Price}
+                onChange={(e) => updateActiveItem({ frame2Price: Number(e.target.value) })}
+                className="pl-20 h-12 left-7 text-lg bg-card border border-border text-foreground focus:border-primary focus:ring-1 focus:ring-primary"
+                style={{ backgroundColor: "hsl(var(--card))" }}
+              />
+            </div>
+          </div>
+        )}
+
+        {activeTotals.bogoEnabled && (
+          <div className="rounded-lg border border-white/10 bg-[#0f0f0f] p-3 text-sm text-white/70 space-y-1">
+            <div className="flex justify-between">
+              <span>BOGO Discount</span>
+              <span className="text-green-400">-â‚¹{activeTotals.bogoDiscount.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Final Frame Total</span>
+              <span className="text-[#d4af37]">â‚¹{activeTotals.frameTotal.toLocaleString()}</span>
+            </div>
+          </div>
+        )}
       </div>
     )}
   </div>
@@ -839,7 +1008,9 @@ const generateInvoiceImage = async () => {
     onClick={() =>
   navigate("/lens-selection", {
   state: {
-    framePrice: Number(framePrice) || 0,
+    framePrice: Number(orderItems[0]?.frame1Price) || 0,
+    orderItems,
+    activeItemIndex,
     from: "new-customer",
 
     customerName,
@@ -858,12 +1029,12 @@ const generateInvoiceImage = async () => {
       Select Lens
     </button>
     
-    {selectedLens && (
+    {(activeItem.lens || selectedLens) && (
   <div className="bg-[#111] p-4 rounded-lg mt-6">
     <h3 className="text-white text-lg mb-2">Selected Lens</h3>
-    <p>{selectedLens.name}</p>
+    <p>{(activeItem.lens || selectedLens).name}</p>
     <p className="text-[#d4af37] font-semibold">
-      ₹{selectedLens.price}
+      ₹{(activeItem.lens || selectedLens).price}
     </p>
   </div>
 )}
@@ -920,6 +1091,48 @@ const generateInvoiceImage = async () => {
         <div className="h-px bg-white/10" />
 
         {/* Pricing */}
+        <div className="space-y-5 text-sm">
+          {orderItems.map((item, index) => {
+            const totals = itemTotals[index];
+            return (
+              <div key={index} className="space-y-3">
+                {orderItems.length > 1 && (
+                  <div className="text-xs uppercase tracking-wider text-[#d4af37]">
+                    Item {index + 1}
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-white/50">{totals.bogoEnabled ? "Frame 1 Price" : "Frame"}</span>
+                  <span className="text-white">₹{totals.frame1Price.toLocaleString()}</span>
+                </div>
+                {totals.bogoEnabled && (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-white/50">Frame 2 Price</span>
+                      <span className="text-white">₹{totals.frame2Price.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-white/50">BOGO Discount</span>
+                      <span className="text-green-400">-₹{totals.bogoDiscount.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-white/50">Final Frame Total</span>
+                      <span className="text-white">₹{totals.frameTotal.toLocaleString()}</span>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-white/50">Lens {totals.lensName ? `- ${totals.lensName}` : ""}</span>
+                  <span className="text-white">₹{totals.lensPrice.toLocaleString()}</span>
+                </div>
+                {orderItems.length > 1 && index < orderItems.length - 1 && (
+                  <div className="h-px bg-white/10" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="hidden">
         <div className="space-y-3 text-sm">
 
           <div className="flex justify-between">
@@ -937,6 +1150,7 @@ const generateInvoiceImage = async () => {
               ₹{lensPrice.toLocaleString()}
             </span>
           </div>
+        </div>
         </div>
 
         {/* Divider */}
@@ -959,6 +1173,12 @@ const generateInvoiceImage = async () => {
     Confirm Order →
   </button>
         </div>
+        <button
+          onClick={addMoreFrame}
+          className="w-full border border-white/20 text-white h-11 rounded-lg hover:border-[#d4af37] transition-colors"
+        >
+          + Add More Frame
+        </button>
       </div>
     </div>
   </div>
@@ -1203,6 +1423,57 @@ const generateInvoiceImage = async () => {
               </tr>
             </thead>
             <tbody>
+              {orderItems.map((item, index) => {
+                const totals = itemTotals[index];
+                return (
+                  <React.Fragment key={index}>
+                    {orderItems.length > 1 && (
+                      <tr className="border-t border-slate-200 bg-slate-50">
+                        <td className="py-2 px-4 text-slate-500 text-xs font-semibold uppercase" colSpan="4">
+                          Item {index + 1}
+                        </td>
+                      </tr>
+                    )}
+                    <tr className="border-t border-slate-200">
+                      <td className="py-3 px-4 text-slate-900">{totals.bogoEnabled ? "Frame 1 Price" : "Frame"}</td>
+                      <td className="py-3 px-4 text-center text-slate-600">1</td>
+                      <td className="py-3 px-4 text-right text-slate-600">₹{totals.frame1Price.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-right text-slate-900 font-medium">₹{totals.frame1Price.toLocaleString()}</td>
+                    </tr>
+                    {totals.bogoEnabled && (
+                      <>
+                        <tr className="border-t border-slate-200">
+                          <td className="py-3 px-4 text-slate-900">Frame 2 Price</td>
+                          <td className="py-3 px-4 text-center text-slate-600">1</td>
+                          <td className="py-3 px-4 text-right text-slate-600">₹{totals.frame2Price.toLocaleString()}</td>
+                          <td className="py-3 px-4 text-right text-slate-900 font-medium">₹{totals.frame2Price.toLocaleString()}</td>
+                        </tr>
+                        <tr className="border-t border-slate-200">
+                          <td className="py-3 px-4 text-green-700">BOGO Discount</td>
+                          <td className="py-3 px-4 text-center text-slate-600">-</td>
+                          <td className="py-3 px-4 text-right text-green-700">-₹{totals.bogoDiscount.toLocaleString()}</td>
+                          <td className="py-3 px-4 text-right text-green-700 font-medium">-₹{totals.bogoDiscount.toLocaleString()}</td>
+                        </tr>
+                        <tr className="border-t border-slate-200">
+                          <td className="py-3 px-4 text-slate-900">Final Frame Total</td>
+                          <td className="py-3 px-4 text-center text-slate-600">-</td>
+                          <td className="py-3 px-4 text-right text-slate-600">-</td>
+                          <td className="py-3 px-4 text-right text-slate-900 font-medium">₹{totals.frameTotal.toLocaleString()}</td>
+                        </tr>
+                      </>
+                    )}
+                    <tr className="border-t border-slate-200">
+                      <td className="py-3 px-4 text-slate-900">{totals.lensName || "Lens"}</td>
+                      <td className="py-3 px-4 text-center text-slate-600">1</td>
+                      <td className="py-3 px-4 text-right text-slate-600">₹{totals.lensPrice.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-right text-slate-900 font-medium">₹{totals.lensPrice.toLocaleString()}</td>
+                    </tr>
+                  </React.Fragment>
+                );
+              })}
+              <tr className="hidden">
+                <td colSpan="4">
+                  <table><tbody>
               <tr className="border-t border-slate-200">
                 <td className="py-3 px-4 text-slate-900">Frame</td>
                 <td className="py-3 px-4 text-center text-slate-600">1</td>
@@ -1219,6 +1490,9 @@ const generateInvoiceImage = async () => {
                 </td>
                 <td className="py-3 px-4 text-right text-slate-900 font-medium">
                   ₹{selectedLens?.price ? Number(selectedLens.price).toLocaleString() : "0"}
+                </td>
+              </tr>
+                  </tbody></table>
                 </td>
               </tr>
             </tbody>

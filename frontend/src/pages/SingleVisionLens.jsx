@@ -154,6 +154,8 @@ const SingleVisionLens = () => {
     navigate("/new-customer", {
       state: {
         selectedLens: selectedLens,
+        orderItems: location.state?.orderItems,
+        activeItemIndex: location.state?.activeItemIndex,
 
         customerName: location.state?.customerName,
         mobile: location.state?.mobile,

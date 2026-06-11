@@ -15,6 +15,7 @@ import LensSelection from "./pages/LensSelection";
 import SingleVisionLens from "./pages/SingleVisionLens";
 import BifocalLens from "./pages/BifocalLens";
 import ProgressiveLens from "./pages/ProgressiveLens";
+import CustomLens from "./pages/CustomLens";
 
 const AUTH_KEY = "lensshine-auth";
 
@@ -139,6 +140,15 @@ function App() {
             element={
               <RequireAuth>
                 <ProgressiveLens />
+              </RequireAuth>
+            }
+          />
+
+          <Route
+            path="/lens/custom"
+            element={
+              <RequireAuth>
+                <CustomLens />
               </RequireAuth>
             }
           />
