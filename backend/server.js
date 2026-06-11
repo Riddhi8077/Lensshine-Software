@@ -17,8 +17,10 @@ const allowedOrigins = [
   "http://localhost:5174",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:5174",
+  "https://lensshine-software.netlify.app",
   "http://localhost:5175/",
-  "https://lensshinesoftware.netlify.app"
+  "https://lensshinesoftware.netlify.app",
+  "https://6a2a8fb2ca8be5d4de622ae6--lensshine-software.netlify.app/"
 ].filter(Boolean);
 
 app.use(
